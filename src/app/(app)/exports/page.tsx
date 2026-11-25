@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export default async function ExportsPage() {
-  const user = await requirePermission('payroll.export');
+  const user = await requirePermission('exports.view');
   const runs = await db.payrollRun.findMany({
     where: { status: { in: ['APPROVED', 'EXPORTED', 'PAID', 'LOCKED'] } },
     orderBy: [{ period: { payDate: 'desc' } }],
@@ -51,7 +51,7 @@ export default async function ExportsPage() {
             locked.
           </p>
         </div>
-        {can(user.roles, 'payroll.export') || can(user.roles, 'settings.edit') ? (
+        {can(user.roles, 'exports.view') || can(user.roles, 'templates.manage') ? (
           <Button asChild variant="outline">
             <Link href="/exports/templates">Bank file templates</Link>
           </Button>
@@ -84,7 +84,9 @@ export default async function ExportsPage() {
               <TableBody>
                 {runs.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="whitespace-nowrap">{fmtDate(iso(r.period.payDate))}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {fmtDate(iso(r.period.payDate))}
+                    </TableCell>
                     <TableCell>{r.payGroup.name}</TableCell>
                     <TableCell>
                       <Badge variant={runStatusVariant(r.status)}>{runStatusLabel(r.status)}</Badge>

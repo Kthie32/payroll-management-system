@@ -8,10 +8,11 @@ import { deleteBank, deleteDepartment, saveBank, saveDepartment } from '@/lib/em
 import { EmployeeError } from '@/lib/employees/service';
 import { bankSchema, departmentSchema } from '@/lib/employees/validation';
 import { assertPermission } from '@/lib/rbac';
+import type { Permission } from '@/lib/rbac/permissions';
 import type { ActionState } from './actions';
 
-async function actor() {
-  const user = await assertPermission('employees.edit');
+async function actor(permission: Permission = 'employees.edit') {
+  const user = await assertPermission(permission);
   return { id: user.id, ip: await currentIp() };
 }
 
@@ -21,7 +22,12 @@ function values(fd: FormData): Record<string, string> {
   return out;
 }
 
-const idSchema = z.string().trim().min(1).optional().or(z.literal('').transform(() => undefined));
+const idSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .optional()
+  .or(z.literal('').transform(() => undefined));
 
 async function run(fd: FormData, fn: () => Promise<void>, path: string, ok: string) {
   try {
@@ -61,7 +67,7 @@ export async function deleteDepartmentAction(_p: ActionState, fd: FormData): Pro
 }
 
 export async function saveBankAction(_p: ActionState, fd: FormData): Promise<ActionState> {
-  const who = await actor();
+  const who = await actor('banks.manage');
   const id = idSchema.parse(fd.get('id') ?? '');
   const parsed = bankSchema.safeParse(values(fd));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message, values: values(fd) };
@@ -76,7 +82,7 @@ export async function saveBankAction(_p: ActionState, fd: FormData): Promise<Act
 }
 
 export async function deleteBankAction(_p: ActionState, fd: FormData): Promise<ActionState> {
-  const who = await actor();
+  const who = await actor('banks.manage');
   const id = z.string().min(1).parse(fd.get('id'));
   return run(
     fd,

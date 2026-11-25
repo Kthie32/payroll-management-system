@@ -17,8 +17,8 @@ const SAMPLE_DATE = '2026-11-28';
 
 export default async function TemplatePage({ params }: { params: Promise<{ bankId: string }> }) {
   const user = await requireUser();
-  const canEdit = can(user.roles, 'settings.edit');
-  if (!canEdit && !can(user.roles, 'payroll.export')) redirect('/dashboard?denied=1');
+  const canEdit = can(user.roles, 'templates.manage');
+  if (!canEdit && !can(user.roles, 'exports.view')) redirect('/dashboard?denied=1');
 
   const { bankId } = await params;
   const bank = await db.bank.findUnique({ where: { id: bankId } });
@@ -101,7 +101,9 @@ export default async function TemplatePage({ params }: { params: Promise<{ bankI
             <Card>
               <CardHeader>
                 <CardTitle>Reset</CardTitle>
-                <CardDescription>Remove the custom template and use the generic default.</CardDescription>
+                <CardDescription>
+                  Remove the custom template and use the generic default.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <ActionButton

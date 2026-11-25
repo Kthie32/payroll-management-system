@@ -101,7 +101,11 @@ export function ImportClient() {
     );
   }
 
-  const rows = preview ? (onlyErrors ? preview.rows.filter((r) => r.errors.length) : preview.rows) : [];
+  const rows = preview
+    ? onlyErrors
+      ? preview.rows.filter((r) => r.errors.length)
+      : preview.rows
+    : [];
 
   return (
     <div className="space-y-6">
@@ -127,7 +131,10 @@ export function ImportClient() {
       {preview ? (
         <div className="space-y-4">
           {preview.fileErrors.length ? (
-            <div role="alert" className="space-y-1 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <div
+              role="alert"
+              className="space-y-1 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+            >
               {preview.fileErrors.map((e) => (
                 <p key={e}>{e}</p>
               ))}

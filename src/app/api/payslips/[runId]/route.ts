@@ -22,7 +22,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ runId: s
     where: { id: u.id },
     select: { isActive: true, roles: { select: { role: { select: { code: true } } } } },
   });
-  if (!user?.isActive || !can(user.roles.map((r) => r.role.code), 'payroll.view')) {
+  if (!user?.isActive || !can(user.roles.map((r) => r.role.code), 'payslips.view')) {
     return new Response('Forbidden', { status: 403 });
   }
 

@@ -7,6 +7,7 @@ import 'dotenv/config';
 import {
   CalcType,
   ComponentKind,
+  InstitutionType,
   PayFrequency,
   PrismaClient,
   RoleCode,
@@ -27,18 +28,22 @@ const ROLES: { code: RoleCode; name: string; description: string }[] = [
   {
     code: 'SYSTEM_ADMIN',
     name: 'System Admin',
-    description: 'Users, settings and statutory rule entry',
+    description: 'Users, roles, banks, export templates and system settings',
   },
-  { code: 'HR_OFFICER', name: 'HR Officer', description: 'Employee records and loans' },
+  {
+    code: 'HR_OFFICER',
+    name: 'HR Officer',
+    description: 'Employees, pay structures, bank details and variable inputs',
+  },
   {
     code: 'PAYROLL_OFFICER',
     name: 'Payroll Officer',
-    description: 'Prepares and computes payroll',
+    description: 'Creates, imports, computes and submits runs; generates payslips',
   },
   {
     code: 'FINANCE_APPROVER',
     name: 'Finance Approver',
-    description: 'Approves payroll and statutory rules',
+    description: 'Approves runs, bank files, marks paid and uploads bank results',
   },
   { code: 'AUDITOR', name: 'Auditor', description: 'Read-only access including the audit log' },
 ];
@@ -112,6 +117,9 @@ const COMPONENTS: ComponentSeed[] = [
   earning('OVERTIME', 'Overtime', 'RATE_X_QTY', 60),
   earning('BONUS', 'Bonus', 'FIXED', 70, { recurring: false }),
   earning('DAILY_WAGE', 'Daily wage (casual)', 'RATE_X_QTY', 80),
+  // Corrections to an approved run are paid or recovered in the next run (approved runs are never edited).
+  earning('ARREARS', 'Arrears / back-pay adjustment', 'FIXED', 75, { recurring: false }),
+  { ...deduction('OVERPAYMENT_RECOVERY', 'Overpayment recovery', 5), recurring: false },
   deduction('LOAN', 'Loan repayment', 10),
   deduction('ADVANCE', 'Salary advance recovery', 20),
   deduction('SACCO', 'SACCO contribution', 30),
@@ -125,7 +133,7 @@ const PAY_GROUPS: { name: string; frequency: PayFrequency }[] = [
 
 // TODO-confirm: bank codes are placeholders. Replace them with the codes your banks use in
 // payment files (e.g. Bank of Uganda / UBA sort codes) before generating bank exports.
-const BANKS: { name: string; code: string }[] = [
+const BANKS: { name: string; code: string; kind?: InstitutionType }[] = [
   { name: 'Stanbic Bank Uganda', code: 'STANBIC' },
   { name: 'Centenary Bank', code: 'CENTENARY' },
   { name: 'Absa Bank Uganda', code: 'ABSA' },
@@ -136,6 +144,9 @@ const BANKS: { name: string; code: string }[] = [
   { name: 'Housing Finance Bank', code: 'HFB' },
   { name: 'KCB Bank Uganda', code: 'KCB' },
   { name: 'PostBank Uganda', code: 'POSTBANK' },
+  // Mobile money providers: the employee's "account number" is the wallet phone number (2567XXXXXXXX).
+  { name: 'MTN Mobile Money', code: 'MTNMOMO', kind: 'MOBILE_MONEY' },
+  { name: 'Airtel Money', code: 'AIRTELMONEY', kind: 'MOBILE_MONEY' },
 ];
 
 const DEPARTMENTS: string[] = ['Administration', 'Finance', 'Operations', 'Sales', 'HR'];
@@ -143,6 +154,7 @@ const DEPARTMENTS: string[] = ['Administration', 'Finance', 'Operations', 'Sales
 const SETTINGS: { key: string; value: Prisma.InputJsonValue }[] = [
   { key: 'minNetPayBp', value: 0 },
   { key: 'prorationBasis', value: 'CALENDAR_DAYS' },
+  { key: 'company.name', value: 'Magezi Harvest Limited' },
 ];
 
 function requireEnv(name: string): string {
@@ -162,7 +174,24 @@ function loadLstBands(): unknown[] {
 async function seedRoles(tx: Tx) {
   for (const r of ROLES) {
     const existing = await tx.role.findUnique({ where: { code: r.code } });
-    if (existing) continue;
+    if (existing) {
+      // Role descriptions are documentation, not admin data: keep them in step with the spec.
+      if (existing.description !== r.description || existing.name !== r.name) {
+        await tx.role.update({
+          where: { id: existing.id },
+          data: { name: r.name, description: r.description },
+        });
+        await withAudit(tx, {
+          actorId: null,
+          action: 'SEED_UPDATE',
+          entity: 'Role',
+          entityId: existing.id,
+          before: { name: existing.name, description: existing.description },
+          after: { name: r.name, description: r.description },
+        });
+      }
+      continue;
+    }
     const role = await tx.role.create({ data: r });
     await withAudit(tx, {
       actorId: null,

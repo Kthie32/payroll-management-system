@@ -20,7 +20,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ exportId
     where: { id: sessionUser.id },
     select: { id: true, isActive: true, roles: { select: { role: { select: { code: true } } } } },
   });
-  if (!user?.isActive || !can(user.roles.map((r) => r.role.code), 'payroll.export')) {
+  if (!user?.isActive || !can(user.roles.map((r) => r.role.code), 'exports.generate')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

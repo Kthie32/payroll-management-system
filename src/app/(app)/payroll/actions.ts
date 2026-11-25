@@ -16,7 +16,13 @@ import {
   saveManualInputs,
   updatePayDate,
 } from '@/lib/payroll/server/periods-inputs';
-import { approveRun, createRun, deleteRun, rejectRun, submitRun } from '@/lib/payroll/server/workflow';
+import {
+  approveRun,
+  createRun,
+  deleteRun,
+  rejectRun,
+  submitRun,
+} from '@/lib/payroll/server/workflow';
 import type { ParseResult } from '@/lib/payroll/csv-inputs';
 import { assertPermission, ForbiddenError } from '@/lib/rbac';
 
@@ -30,7 +36,8 @@ const isoDate = z.string().refine(isIsoDate, 'Enter a valid date');
 
 /** Turns known failures into form errors; rethrows anything else (incl. Next redirects). */
 function toState(e: unknown): ActionState {
-  if (e instanceof RunActionError || e instanceof PeriodGenerationError) return { error: e.message };
+  if (e instanceof RunActionError || e instanceof PeriodGenerationError)
+    return { error: e.message };
   if (e instanceof ForbiddenError) return { error: 'You do not have permission to do that.' };
   throw e;
 }
@@ -85,7 +92,7 @@ export async function updatePayDateAction(_p: ActionState, fd: FormData): Promis
 
 export async function saveInputsAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   try {
-    const actor = await assertPermission('payroll.prepare');
+    const actor = await assertPermission('payroll.inputs');
     const periodId = id.parse(fd.get('periodId'));
     const cells: Array<{ employeeId: string; componentId: string; value: string }> = [];
     for (const [key, value] of fd.entries()) {
@@ -107,7 +114,10 @@ export interface PreviewState extends ActionState {
   text?: string;
 }
 
-const csvSchema = z.object({ periodId: id, text: z.string().min(1, 'Choose a CSV file').max(2_000_000) });
+const csvSchema = z.object({
+  periodId: id,
+  text: z.string().min(1, 'Choose a CSV file').max(2_000_000),
+});
 
 export async function previewCsvAction(_p: PreviewState, fd: FormData): Promise<PreviewState> {
   try {
@@ -126,7 +136,12 @@ export async function importCsvAction(_p: PreviewState, fd: FormData): Promise<P
     const actor = await assertPermission('payroll.prepare');
     const parsed = csvSchema.safeParse({ periodId: fd.get('periodId'), text: fd.get('text') });
     if (!parsed.success) return { error: parsed.error.issues[0]?.message };
-    const n = await importInputsCsv(parsed.data.periodId, parsed.data.text, actor.id, await currentIp());
+    const n = await importInputsCsv(
+      parsed.data.periodId,
+      parsed.data.text,
+      actor.id,
+      await currentIp(),
+    );
     revalidatePath(`/payroll/periods/${parsed.data.periodId}/inputs`);
     return { message: `Imported ${n} row(s).` };
   } catch (e) {
@@ -212,7 +227,8 @@ const commentSchema = z
 export async function rejectRunAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   return runAction('payroll.approve', fd, async (runId, actorId, ip) => {
     const comment = commentSchema.safeParse(fd.get('comment'));
-    if (!comment.success) throw new RunActionError(comment.error.issues[0]?.message ?? 'Invalid comment');
+    if (!comment.success)
+      throw new RunActionError(comment.error.issues[0]?.message ?? 'Invalid comment');
     await rejectRun(runId, actorId, comment.data, ip);
     return 'Run rejected and returned for correction.';
   });

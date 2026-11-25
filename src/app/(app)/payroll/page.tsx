@@ -3,7 +3,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { NativeSelect } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { db } from '@/lib/db';
 import { formatUgx } from '@/lib/money';
 import { formatIsoDate, toIsoDate } from '@/lib/payroll/dates';
@@ -30,7 +37,9 @@ export default async function PayrollPage({
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
   const payGroupId = one(sp.payGroupId);
   const statusParam = one(sp.status);
-  const status = STATUSES.includes(statusParam as RunStatus) ? (statusParam as RunStatus) : undefined;
+  const status = STATUSES.includes(statusParam as RunStatus)
+    ? (statusParam as RunStatus)
+    : undefined;
 
   const [groups, runs, openablePeriods] = await Promise.all([
     db.payGroup.findMany({ orderBy: { name: 'asc' } }),
@@ -90,7 +99,8 @@ export default async function PayrollPage({
                     {openablePeriods.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.payGroup.name}: {formatIsoDate(toIsoDate(p.startDate))} –{' '}
-                        {formatIsoDate(toIsoDate(p.endDate))} (pay {formatIsoDate(toIsoDate(p.payDate))})
+                        {formatIsoDate(toIsoDate(p.endDate))} (pay{' '}
+                        {formatIsoDate(toIsoDate(p.payDate))})
                       </option>
                     ))}
                   </NativeSelect>
@@ -154,8 +164,12 @@ export default async function PayrollPage({
                   return (
                     <TableRow key={r.id}>
                       <TableCell>
-                        <Link className="font-medium text-primary hover:underline" href={`/payroll/runs/${r.id}`}>
-                          {formatIsoDate(toIsoDate(r.period.startDate))} – {formatIsoDate(toIsoDate(r.period.endDate))}
+                        <Link
+                          className="font-medium text-primary hover:underline"
+                          href={`/payroll/runs/${r.id}`}
+                        >
+                          {formatIsoDate(toIsoDate(r.period.startDate))} –{' '}
+                          {formatIsoDate(toIsoDate(r.period.endDate))}
                         </Link>
                         <p className="text-xs text-muted-foreground">
                           Pay date {formatIsoDate(toIsoDate(r.period.payDate))}
@@ -166,7 +180,9 @@ export default async function PayrollPage({
                         <RunStatusBadge status={r.status} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{t.headcount}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatUgx(t.gross)}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatUgx(t.gross)}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{formatUgx(t.net)}</TableCell>
                     </TableRow>
                   );

@@ -12,10 +12,21 @@ const MAX_BYTES = 2_000_000;
 export function CsvImport({ periodId }: { periodId: string }) {
   const [text, setText] = useState('');
   const [fileError, setFileError] = useState<string | null>(null);
-  const [preview, previewAction, previewing] = useActionState<PreviewState, FormData>(previewCsvAction, {});
-  const [result, importAction, importing] = useActionState<PreviewState, FormData>(importCsvAction, {});
+  const [preview, previewAction, previewing] = useActionState<PreviewState, FormData>(
+    previewCsvAction,
+    {},
+  );
+  const [result, importAction, importing] = useActionState<PreviewState, FormData>(
+    importCsvAction,
+    {},
+  );
   const p = preview.preview;
-  const canImport = p && p.fileErrors.length === 0 && p.errorCount === 0 && p.validCount > 0 && preview.text === text;
+  const canImport =
+    p &&
+    p.fileErrors.length === 0 &&
+    p.errorCount === 0 &&
+    p.validCount > 0 &&
+    preview.text === text;
 
   return (
     <div className="space-y-3">
@@ -71,15 +82,22 @@ export function CsvImport({ periodId }: { periodId: string }) {
                   </thead>
                   <tbody>
                     {p.rows.map((r) => (
-                      <tr key={r.line} className={r.errors.length ? 'border-b bg-destructive/5' : 'border-b'}>
+                      <tr
+                        key={r.line}
+                        className={r.errors.length ? 'border-b bg-destructive/5' : 'border-b'}
+                      >
                         <td className="px-2 py-1 tabular-nums">{r.line}</td>
                         <td className="px-2 py-1">
                           {r.staffNo}
-                          {r.employeeName ? <span className="text-muted-foreground"> · {r.employeeName}</span> : null}
+                          {r.employeeName ? (
+                            <span className="text-muted-foreground"> · {r.employeeName}</span>
+                          ) : null}
                         </td>
                         <td className="px-2 py-1">{r.componentCode}</td>
                         <td className="px-2 py-1 text-right tabular-nums">{r.quantity ?? ''}</td>
-                        <td className="px-2 py-1 text-right tabular-nums">{r.amount?.toLocaleString('en-UG') ?? ''}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">
+                          {r.amount?.toLocaleString('en-UG') ?? ''}
+                        </td>
                         <td className="px-2 py-1 text-xs">
                           {r.errors.length ? (
                             <span className="text-destructive">{r.errors.join('; ')}</span>

@@ -22,11 +22,7 @@ export default async function NewEmployeePage() {
       </div>
       <Card>
         <CardContent className="pt-6">
-          <EmployeeForm
-            defaults={EMPTY_EMPLOYEE}
-            payGroups={payGroups}
-            departments={departments}
-          />
+          <EmployeeForm defaults={EMPTY_EMPLOYEE} payGroups={payGroups} departments={departments} />
         </CardContent>
       </Card>
     </div>

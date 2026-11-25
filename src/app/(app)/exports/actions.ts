@@ -34,7 +34,7 @@ export async function generateExportAction(
   _prev: ActionState,
   _form: FormData,
 ): Promise<ActionState> {
-  const actor = await assertPermission('payroll.export');
+  const actor = await assertPermission('exports.generate');
   const parsed = z.object({ runId: id, bankId: id }).safeParse({ runId, bankId });
   if (!parsed.success) return { error: 'Invalid request.' };
   try {
@@ -59,7 +59,9 @@ export async function transitionRunAction(
 ): Promise<ActionState> {
   const target = transitionSchema.safeParse(to);
   if (!target.success || !id.safeParse(runId).success) return { error: 'Invalid request.' };
-  const actor = await assertPermission(target.data === 'EXPORTED' ? 'payroll.export' : 'payroll.markPaid');
+  const actor = await assertPermission(
+    target.data === 'EXPORTED' ? 'exports.generate' : 'payroll.markPaid',
+  );
   try {
     await transitionRun(db, runId, target.data, { actorId: actor.id, ip: await currentIp() });
     revalidatePath(`/exports/runs/${runId}`);
@@ -86,7 +88,7 @@ export async function saveTemplateAction(
   _prev: ActionState,
   form: FormData,
 ): Promise<ActionState> {
-  const actor = await assertPermission('settings.edit');
+  const actor = await assertPermission('templates.manage');
   if (!id.safeParse(bankId).success) return { error: 'Invalid bank.' };
   const raw = templateFormSchema.safeParse({
     format: form.get('format'),
@@ -115,7 +117,10 @@ export async function saveTemplateAction(
     return { error: 'Header/footer rows are too long (max 10 rows of 30 cells).' };
   }
 
-  const bank = await db.bank.findUnique({ where: { id: bankId }, select: { id: true, name: true } });
+  const bank = await db.bank.findUnique({
+    where: { id: bankId },
+    select: { id: true, name: true },
+  });
   if (!bank) return { error: 'Bank not found.' };
   const ip = await currentIp();
 
@@ -160,7 +165,7 @@ export async function resetTemplateAction(
   _prev: ActionState,
   _form: FormData,
 ): Promise<ActionState> {
-  const actor = await assertPermission('settings.edit');
+  const actor = await assertPermission('templates.manage');
   if (!id.safeParse(bankId).success) return { error: 'Invalid bank.' };
   const ip = await currentIp();
   const removed = await db.$transaction(async (tx) => {

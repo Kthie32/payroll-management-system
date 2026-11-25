@@ -70,7 +70,13 @@ export function AssignComponentForm({
           </NativeSelect>
         </Field>
         <Field name="value" label={valueText.label} error={fe.value} hint={valueText.hint}>
-          <Input id="value" name="value" required inputMode="decimal" defaultValue={v('value', '')} />
+          <Input
+            id="value"
+            name="value"
+            required
+            inputMode="decimal"
+            defaultValue={v('value', '')}
+          />
         </Field>
         <Field name="effectiveFrom" label="From" error={fe.effectiveFrom}>
           <Input

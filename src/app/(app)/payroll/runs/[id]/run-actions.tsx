@@ -116,7 +116,13 @@ export function RunActions({
                   <Blocked reason={rejectBlocked} />
                 </>
               ) : (
-                <ActionForm action={rejectRunAction} fields={fields} label="Reject" variant="destructive" pendingLabel="Rejecting…">
+                <ActionForm
+                  action={rejectRunAction}
+                  fields={fields}
+                  label="Reject"
+                  variant="destructive"
+                  pendingLabel="Rejecting…"
+                >
                   <Label htmlFor="comment">Reason for rejecting</Label>
                   <textarea
                     id="comment"

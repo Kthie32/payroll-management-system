@@ -23,10 +23,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', permission: 'dashboard.view' },
   { href: '/employees', label: 'Employees', icon: 'employees', permission: 'employees.view' },
   { href: '/payroll', label: 'Payroll', icon: 'payroll', permission: 'payroll.view' },
-  { href: '/exports', label: 'Exports', icon: 'exports', permission: 'payroll.export' },
+  { href: '/exports', label: 'Exports', icon: 'exports', permission: 'exports.view' },
   { href: '/reports', label: 'Reports', icon: 'reports', permission: 'reports.view' },
   { href: '/loans', label: 'Loans', icon: 'loans', permission: 'loans.view' },
   { href: '/settings', label: 'Settings', icon: 'settings', permission: 'settings.view' },
-  { href: '/admin/users', label: 'Users', icon: 'users', permission: 'users.manage' },
+  { href: '/admin/users', label: 'Users', icon: 'users', permission: 'users.view' },
   { href: '/audit', label: 'Audit', icon: 'audit', permission: 'audit.view' },
 ];

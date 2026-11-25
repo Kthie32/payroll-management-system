@@ -47,9 +47,19 @@ export function BankAccountForm({
           </NativeSelect>
         </Field>
         <Field name="branchCode" label="Branch code" error={fe.branchCode}>
-          <Input id="branchCode" name="branchCode" maxLength={20} defaultValue={v('branchCode', '')} />
+          <Input
+            id="branchCode"
+            name="branchCode"
+            maxLength={20}
+            defaultValue={v('branchCode', '')}
+          />
         </Field>
-        <Field name="accountNo" label="Account number" error={fe.accountNo} hint="Stored encrypted.">
+        <Field
+          name="accountNo"
+          label="Account number"
+          error={fe.accountNo}
+          hint="Stored encrypted."
+        >
           <Input
             id="accountNo"
             name="accountNo"

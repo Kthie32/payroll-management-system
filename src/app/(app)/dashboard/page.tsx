@@ -25,7 +25,7 @@ const RULE_BADGE: Record<RuleState, 'success' | 'warning' | 'destructive'> = {
 const QUICK_LINKS: { href: string; label: string; permission: Permission }[] = [
   { href: '/payroll', label: 'Payroll runs', permission: 'payroll.view' },
   { href: '/employees', label: 'Employees', permission: 'employees.view' },
-  { href: '/exports', label: 'Bank exports', permission: 'payroll.export' },
+  { href: '/exports', label: 'Bank exports', permission: 'exports.view' },
   { href: '/reports', label: 'Reports', permission: 'reports.view' },
   { href: '/loans', label: 'Loans', permission: 'loans.view' },
   { href: '/settings', label: 'Settings', permission: 'settings.view' },
@@ -84,7 +84,7 @@ export default async function DashboardPage({
   const roles = user.roles;
   const isApprover = can(roles, 'payroll.approve');
   const isPreparer = can(roles, 'payroll.prepare');
-  const canExport = can(roles, 'payroll.export');
+  const canExport = can(roles, 'exports.generate');
   const seesRules = can(roles, 'settings.view') || can(roles, 'rules.edit');
   const ruleProblems = d.rules.filter((r) => r.state !== 'ok');
 

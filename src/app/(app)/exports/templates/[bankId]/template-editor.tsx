@@ -47,7 +47,9 @@ export function TemplateEditor({
       <Card>
         <CardHeader>
           <CardTitle>File format and columns</CardTitle>
-          <CardDescription>Columns appear in this order. Amounts are net pay in whole shillings.</CardDescription>
+          <CardDescription>
+            Columns appear in this order. Amounts are net pay in whole shillings.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -71,7 +73,10 @@ export function TemplateEditor({
 
           <ol className="space-y-3">
             {columns.map((c, i) => (
-              <li key={i} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+              <li
+                key={i}
+                className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"
+              >
                 <div className="space-y-1">
                   <Label htmlFor={`h${i}`}>Header</Label>
                   <Input
@@ -100,7 +105,9 @@ export function TemplateEditor({
                   <NativeSelect
                     id={`fmt${i}`}
                     value={c.format}
-                    onChange={(e) => update(i, { format: e.target.value as ExportColumn['format'] })}
+                    onChange={(e) =>
+                      update(i, { format: e.target.value as ExportColumn['format'] })
+                    }
                   >
                     {COLUMN_FORMATS.map((f) => (
                       <option key={f} value={f}>
@@ -110,10 +117,22 @@ export function TemplateEditor({
                   </NativeSelect>
                 </div>
                 <div className="flex gap-1">
-                  <Button type="button" size="icon" variant="ghost" aria-label="Move up" onClick={() => move(i, -1)}>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Move up"
+                    onClick={() => move(i, -1)}
+                  >
                     <ArrowUp />
                   </Button>
-                  <Button type="button" size="icon" variant="ghost" aria-label="Move down" onClick={() => move(i, 1)}>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Move down"
+                    onClick={() => move(i, 1)}
+                  >
                     <ArrowDown />
                   </Button>
                   <Button
@@ -133,7 +152,10 @@ export function TemplateEditor({
             type="button"
             variant="outline"
             onClick={() =>
-              setColumns((cols) => [...cols, { header: 'New column', field: 'staffNo', format: 'AS_IS' }])
+              setColumns((cols) => [
+                ...cols,
+                { header: 'New column', field: 'staffNo', format: 'AS_IS' },
+              ])
             }
           >
             <Plus /> Add column

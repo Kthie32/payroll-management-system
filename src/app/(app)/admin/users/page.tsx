@@ -9,7 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { db } from '@/lib/db';
-import { requirePermission } from '@/lib/rbac';
+import { can, requirePermission, ROLE_LABELS } from '@/lib/rbac';
 import { CreateUserForm } from './create-user-form';
 import { ManageUser } from './manage-user';
 
@@ -23,7 +23,8 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', {
 });
 
 export default async function UsersPage() {
-  const me = await requirePermission('users.manage');
+  const me = await requirePermission('users.view');
+  const canManage = can(me.roles, 'users.manage');
   const users = await db.user.findMany({
     orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
     include: { roles: { include: { role: true } } },
@@ -33,18 +34,20 @@ export default async function UsersPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Users</h1>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Create user</CardTitle>
-          <CardDescription>
-            The user signs in with a temporary password and must change it. System Admins and
-            Finance Approvers must also set up two-factor authentication.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CreateUserForm />
-        </CardContent>
-      </Card>
+      {canManage ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Create user</CardTitle>
+            <CardDescription>
+              The user signs in with a temporary password and must change it. System Admins and
+              Finance Approvers must also set up two-factor authentication.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CreateUserForm />
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -90,13 +93,23 @@ export default async function UsersPage() {
                       {u.lastLoginAt ? dateFmt.format(u.lastLoginAt) : 'Never'}
                     </TableCell>
                     <TableCell className="align-top">
-                      <ManageUser
-                        userId={u.id}
-                        roles={u.roles.map((r) => r.role.code)}
-                        isActive={u.isActive}
-                        totpEnrolled={totpEnrolled}
-                        isSelf={u.id === me.id}
-                      />
+                      {canManage ? (
+                        <ManageUser
+                          userId={u.id}
+                          roles={u.roles.map((r) => r.role.code)}
+                          isActive={u.isActive}
+                          totpEnrolled={totpEnrolled}
+                          isSelf={u.id === me.id}
+                        />
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {u.roles.map((r) => (
+                            <Badge key={r.role.code} variant="secondary">
+                              {ROLE_LABELS[r.role.code]}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

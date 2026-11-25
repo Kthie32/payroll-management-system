@@ -3,7 +3,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { NativeSelect } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { db } from '@/lib/db';
 import { formatIsoDate, monthLabel, monthOf, toIsoDate } from '@/lib/payroll/dates';
 import { isPosted, type RunStatus } from '@/lib/payroll/status';
@@ -128,7 +135,8 @@ export default async function PeriodsPage({
                           return (
                             <TableRow key={p.id} className="align-top">
                               <TableCell className="whitespace-nowrap">
-                                {formatIsoDate(toIsoDate(p.startDate))} – {formatIsoDate(toIsoDate(p.endDate))}
+                                {formatIsoDate(toIsoDate(p.startDate))} –{' '}
+                                {formatIsoDate(toIsoDate(p.endDate))}
                               </TableCell>
                               <TableCell>
                                 {canPrepare && !locked ? (

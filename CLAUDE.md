@@ -1,4 +1,4 @@
-# Payroll Management System (Uganda) — Project Rules
+# Payroll Management System (Magezi Harvest Limited, Uganda) — Project Rules
 
 Read this file in full before changing anything. It is the source of truth for the stack,
 the non-negotiable rules and the domain rules.
@@ -51,30 +51,52 @@ One-time setup: run `scripts/mysql-setup.sql` as MySQL `root` (creates `payroll`
    Run status only moves forward from `APPROVED`.
 7. **Sensitive fields are encrypted** (AES-256-GCM, `lib/crypto`): bank account numbers, NIN,
    TOTP secrets. Store `last4` separately for display.
-8. **Separation of duties**: the user who computed a run cannot approve it.
+8. **Separation of duties, per run, enforced on the server**: whoever created, computed or
+   submitted a run can never approve (or reject) that run, even if they also hold the
+   Finance Approver role. `created_by_id`, `computed_by_id`, `submitted_by_id` and
+   `approved_by_id` are frozen by a DB trigger once the run is approved.
 9. **2FA**: `SYSTEM_ADMIN` and `FINANCE_APPROVER` cannot use the app until TOTP is enrolled and
    verified for the session.
 10. Table names are lowercase snake_case (`@@map`) — MySQL on Windows is case-insensitive, Linux is not.
 
 ## Roles
 
+Five roles (`src/lib/rbac/permissions.ts` is the code version of this table). One person may hold
+several roles; the per-run preparer ≠ approver rule still applies (rule 8).
+
 | Permission | SYSTEM_ADMIN | HR_OFFICER | PAYROLL_OFFICER | FINANCE_APPROVER | AUDITOR |
 | --- | --- | --- | --- | --- | --- |
-| users.manage | ✅ | | | | |
-| settings.view | ✅ | | | ✅ | ✅ |
-| settings.edit / rules.edit | ✅ | | | | |
+| dashboard.view | ✅ | ✅ | ✅ | ✅ | ✅ |
+| users.manage (create users, assign roles, reset 2FA) | ✅ | | | | |
+| users.view | ✅ | | | | ✅ |
+| settings.view | ✅ | | ✅ | ✅ | ✅ |
+| settings.edit / rules.edit (system settings, statutory rule drafts) | ✅ | | | | |
 | rules.approve | | | | ✅ | |
+| banks.manage (banks and mobile money providers) | ✅ | | | | |
+| templates.manage (bank / mobile money export templates) | ✅ | | | | |
 | employees.view | ✅ | ✅ | ✅ | ✅ | ✅ |
-| employees.edit | | ✅ | | | |
+| employees.edit (personal, job, bank / mobile money details) | | ✅ | | | |
+| pay.view (salaries, run figures, payslip amounts) | | ✅ | ✅ | ✅ | ✅ |
+| pay.edit (employee pay structure) | | ✅ | | | |
+| bank.reveal (full account / wallet numbers) | | ✅ | | ✅ | |
 | payroll.view | | ✅ | ✅ | ✅ | ✅ |
-| payroll.prepare (inputs, compute) | | | ✅ | | |
-| payroll.approve | | | | ✅ | |
-| payroll.export / payroll.markPaid | | | ✅ | ✅ | |
+| payroll.inputs (enter variable inputs) | | ✅ | ✅ | | |
+| payroll.prepare (create, import inputs, compute, review, submit) | | | ✅ | | |
+| payroll.approve (approve / reject) | | | | ✅ | |
+| payslips.view | | ✅ | ✅ | ✅ | ✅ |
+| payslips.generate (generate and send payslips) | | | ✅ | | |
+| exports.view | | | | ✅ | ✅ |
+| exports.generate (generate / download bank and mobile money files) | | | | ✅ | |
+| payroll.markPaid | | | | ✅ | |
+| payments.upload (upload bank results) | | | | ✅ | |
 | loans.view | | ✅ | ✅ | ✅ | ✅ |
 | loans.edit | | ✅ | ✅ | | |
 | reports.view | | ✅ | ✅ | ✅ | ✅ |
 | audit.view | ✅ | | | | ✅ |
-| dashboard.view | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+"Cannot do" (from the specification): System Admin never edits pay or prepares/approves runs;
+HR never approves runs or exports bank files; a Payroll Officer never approves a run they
+prepared; a Finance Approver never edits employee data or run inputs; the Auditor changes nothing.
 
 ## Domain rules
 
@@ -124,6 +146,34 @@ seeded; non-resident employees fail with `MissingRuleError` until it is entered 
 ### Proration
 
 Basis `CALENDAR_DAYS` (setting `prorationBasis`): `round_half_up(amount × daysWorked ÷ daysInPeriod)`.
+
+## Magezi Harvest Limited specification (scope)
+
+An internal web app that runs payroll for Magezi Harvest Limited: computes PAYE, NSSF and LST,
+produces payslips and statutory schedules, and exports bulk-payment files that finance uploads
+to the bank. **It never moves money itself.**
+
+MVP modules:
+1. **Employees**: personal details, job and grade, employment type, salary structure, TIN, NSSF
+   number, email/phone, and bank *or* mobile money details (one active payment destination).
+2. **Pay components**: earnings (basic, allowances, overtime, bonuses, arrears), deductions
+   (statutory, loans, advances, SACCO, overpayment recovery), employer contributions.
+3. **Payroll run**: pick the period → compute → compare with last month → submit → approve → lock.
+   Approved runs are never edited; **mistakes are fixed with adjustments in the next run**
+   (`ARREARS` earning / `OVERPAYMENT_RECOVERY` deduction inputs with a note and the run they correct).
+4. **Statutory engine**: PAYE, NSSF (employee + employer), LST; rules versioned by effective date
+   so a rate change never rewrites old payrolls.
+5. **Payslips**: PDFs, delivered by email or as an SMS link (signed, expiring token; only its
+   SHA-256 is stored). Development uses an outbox instead of real providers.
+6. **Disbursement**: bank bulk-payment files; mobile money (MTN MoMo, Airtel Money) bulk files
+   now — mobile money providers are `Bank` rows of kind `MOBILE_MONEY` and the account number is
+   the wallet phone (2567XXXXXXXX). Direct API payouts are a later phase.
+7. **Reports**: payroll register, PAYE return (URA), NSSF schedule, cost per department.
+8. **Roles and audit**: see Roles; every change is logged.
+
+Out of scope until Phase 2 of the spec: leave and attendance feeding pay, employee
+self-service portal, multiple companies, accounting-software exports. (A loans and advances
+module already exists and is kept.)
 
 ## Phase plan
 

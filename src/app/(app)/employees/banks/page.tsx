@@ -15,7 +15,7 @@ const FIELDS: RefField[] = [
 
 export default async function BanksPage() {
   const user = await requirePermission('employees.view');
-  const canEdit = can(user.roles, 'employees.edit');
+  const canEdit = can(user.roles, 'banks.manage');
   const banks = await db.bank.findMany({
     orderBy: { name: 'asc' },
     include: {

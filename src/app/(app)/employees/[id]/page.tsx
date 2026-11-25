@@ -60,6 +60,8 @@ export default async function EmployeePage({
 }) {
   const user = await requirePermission('employees.view');
   const canEdit = can(user.roles, 'employees.edit');
+  const canReveal = can(user.roles, 'bank.reveal');
+  const canEditPay = can(user.roles, 'pay.edit');
   const { id } = await params;
   const sp = await searchParams;
   const tabParam = typeof sp.tab === 'string' ? sp.tab : 'profile';
@@ -127,9 +129,11 @@ export default async function EmployeePage({
       </nav>
 
       {tab === 'profile' ? <ProfileTab e={e} /> : null}
-      {tab === 'bank' ? <BankTab employee={e} canEdit={canEdit} today={today} /> : null}
+      {tab === 'bank' ? (
+        <BankTab employee={e} canEdit={canEdit} canReveal={canReveal} today={today} />
+      ) : null}
       {tab === 'components' ? (
-        <ComponentsTab employeeId={e.id} canEdit={canEdit} today={today} />
+        <ComponentsTab employeeId={e.id} canEdit={canEditPay} today={today} />
       ) : null}
       {tab === 'loans' ? <LoansTab employeeId={e.id} /> : null}
       {tab === 'history' ? <HistoryTab employeeId={e.id} /> : null}
@@ -139,9 +143,7 @@ export default async function EmployeePage({
 
 // ── Profile ─────────────────────────────────────────────────────────────
 
-type EmployeeWithRefs = NonNullable<
-  Awaited<ReturnType<typeof db.employee.findUnique>>
-> & {
+type EmployeeWithRefs = NonNullable<Awaited<ReturnType<typeof db.employee.findUnique>>> & {
   payGroup: { name: string; frequency: string };
   department: { name: string; costCentreCode: string | null } | null;
 };
@@ -149,7 +151,12 @@ type EmployeeWithRefs = NonNullable<
 function ProfileTab({ e }: { e: EmployeeWithRefs }) {
   const yesNo = (b: boolean) => (b ? 'Yes' : 'No');
   const rows: [string, React.ReactNode][] = [
-    ['Staff number', <span key="s" className="font-mono">{e.staffNo}</span>],
+    [
+      'Staff number',
+      <span key="s" className="font-mono">
+        {e.staffNo}
+      </span>,
+    ],
     ['Worker type', WORKER_TYPE_LABELS[e.workerType]],
     ['Pay group', `${e.payGroup.name} (${e.payGroup.frequency.toLowerCase()})`],
     [
@@ -192,10 +199,12 @@ function ProfileTab({ e }: { e: EmployeeWithRefs }) {
 async function BankTab({
   employee,
   canEdit,
+  canReveal,
   today,
 }: {
   employee: EmployeeWithRefs;
   canEdit: boolean;
+  canReveal: boolean;
   today: string;
 }) {
   const [accounts, banks] = await Promise.all([
@@ -250,7 +259,7 @@ async function BankTab({
                       <RevealAccount
                         accountId={a.id}
                         masked={maskAccount(a.accountNoLast4)}
-                        canReveal={canEdit}
+                        canReveal={canReveal}
                       />
                     </TableCell>
                     <TableCell className="hidden text-sm md:table-cell">{a.accountName}</TableCell>
@@ -303,7 +312,8 @@ function describeValue(
   a: { amount: bigint | null; rateBp: number | null; ratePerUnit: bigint | null },
 ): string {
   if (calcType === 'FIXED' && a.amount !== null) return formatUgx(toUgx(a.amount));
-  if (calcType === 'PERCENT_OF_BASIC' && a.rateBp !== null) return `${bpToPercent(a.rateBp)}% of basic`;
+  if (calcType === 'PERCENT_OF_BASIC' && a.rateBp !== null)
+    return `${bpToPercent(a.rateBp)}% of basic`;
   if (calcType === 'RATE_X_QTY' && a.ratePerUnit !== null) {
     return `${formatUgx(toUgx(a.ratePerUnit))} per unit`;
   }
@@ -470,7 +480,9 @@ async function LoansTab({ employeeId }: { employeeId: string }) {
             ) : (
               loans.map((l) => (
                 <TableRow key={l.id}>
-                  <TableCell className="text-sm">{l.type.charAt(0) + l.type.slice(1).toLowerCase()}</TableCell>
+                  <TableCell className="text-sm">
+                    {l.type.charAt(0) + l.type.slice(1).toLowerCase()}
+                  </TableCell>
                   <TableCell className="whitespace-nowrap text-right text-sm tabular-nums">
                     {formatUgx(toUgx(l.principal))}
                   </TableCell>
@@ -516,7 +528,9 @@ async function HistoryTab({ employeeId }: { employeeId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Payroll history</CardTitle>
-        <CardDescription>The most recent 36 pay periods this employee was included in.</CardDescription>
+        <CardDescription>
+          The most recent 36 pay periods this employee was included in.
+        </CardDescription>
       </CardHeader>
       <CardContent className="px-0 sm:px-6">
         <Table>
@@ -541,7 +555,8 @@ async function HistoryTab({ employeeId }: { employeeId: string }) {
               rows.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell className="whitespace-nowrap text-sm">
-                    {dateFmt.format(r.run.period.startDate)} – {dateFmt.format(r.run.period.endDate)}
+                    {dateFmt.format(r.run.period.startDate)} –{' '}
+                    {dateFmt.format(r.run.period.endDate)}
                   </TableCell>
                   <TableCell className="hidden whitespace-nowrap text-sm sm:table-cell">
                     {dateFmt.format(r.run.period.payDate)}

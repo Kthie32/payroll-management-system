@@ -104,6 +104,28 @@ enum BankExportStatus {
   SENT
 }
 
+enum InstitutionType {
+  BANK
+  MOBILE_MONEY
+}
+
+enum DeliveryChannel {
+  EMAIL
+  SMS
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
 // ───────────────────────────── Identity ─────────────────────────────
 
 model User {
@@ -121,12 +143,17 @@ model User {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  roles            UserRole[]
-  auditEntries     AuditLog[]
-  computedRuns     PayrollRun[]           @relation("RunComputedBy")
-  approvedRuns     PayrollRun[]           @relation("RunApprovedBy")
-  approvedRules    StatutoryRuleVersion[]
-  generatedExports BankExport[]
+  roles             UserRole[]
+  auditEntries      AuditLog[]
+  computedRuns      PayrollRun[]           @relation("RunComputedBy")
+  approvedRuns      PayrollRun[]           @relation("RunApprovedBy")
+  approvedRules     StatutoryRuleVersion[]
+  generatedExports  BankExport[]
+  createdRuns       PayrollRun[]           @relation("RunCreatedBy")
+  submittedRuns     PayrollRun[]           @relation("RunSubmittedBy")
+  outboundMessages  OutboundMessage[]
+  payslipDeliveries PayslipDelivery[]
+  paymentResults    PaymentResult[]
 
   @@map("users")
 }
@@ -202,6 +229,10 @@ model Employee {
   nssfNo         String?        @map("nssf_no") @db.VarChar(30)
   ninEnc         String?        @map("nin_enc") @db.VarChar(255)
   lstDistrict    String?        @map("lst_district") @db.VarChar(80)
+  /// Email used for payslip delivery.
+  email          String?        @db.VarChar(191)
+  /// Mobile number in international format, e.g. 256772123456 (payslip SMS links).
+  phone          String?        @db.VarChar(20)
   payeApplicable Boolean        @default(true) @map("paye_applicable")
   nssfApplicable Boolean        @default(true) @map("nssf_applicable")
   lstApplicable  Boolean        @default(true) @map("lst_applicable")
@@ -222,6 +253,7 @@ model Employee {
   @@index([departmentId])
   @@index([status])
   @@index([lastName, firstName])
+  @@index([email])
   @@map("employees")
 }
 
@@ -229,6 +261,8 @@ model Bank {
   id        String                @id @default(cuid())
   name      String                @unique @db.VarChar(120)
   code      String                @unique @db.VarChar(20)
+  /// BANK or MOBILE_MONEY (MTN MoMo, Airtel Money). For mobile money the account number is the wallet phone number.
+  kind      InstitutionType       @default(BANK)
   createdAt DateTime              @default(now()) @map("created_at")
   updatedAt DateTime              @updatedAt @map("updated_at")
   accounts  EmployeeBankAccount[]
@@ -351,20 +385,26 @@ model PayPeriod {
 }
 
 model PayrollInput {
-  id          String      @id @default(cuid())
-  periodId    String      @map("period_id")
-  employeeId  String      @map("employee_id")
-  componentId String      @map("component_id")
-  quantity    Decimal?    @db.Decimal(10, 2)
-  amount      BigInt?
-  source      InputSource @default(MANUAL)
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  id           String      @id @default(cuid())
+  periodId     String      @map("period_id")
+  employeeId   String      @map("employee_id")
+  componentId  String      @map("component_id")
+  quantity     Decimal?    @db.Decimal(10, 2)
+  amount       BigInt?
+  source       InputSource @default(MANUAL)
+  /// Reason for the input; required for adjustments (e.g. arrears for a previous run).
+  note         String?     @db.VarChar(500)
+  /// The earlier approved run this input corrects, when it is an adjustment.
+  adjustsRunId String?     @map("adjusts_run_id")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
 
-  period    PayPeriod    @relation(fields: [periodId], references: [id], onDelete: Restrict)
-  employee  Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  component PayComponent @relation(fields: [componentId], references: [id], onDelete: Restrict)
+  period     PayPeriod    @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  employee   Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  component  PayComponent @relation(fields: [componentId], references: [id], onDelete: Restrict)
+  adjustsRun PayrollRun?  @relation("InputAdjustsRun", fields: [adjustsRunId], references: [id], onDelete: Restrict)
 
+  @@index([adjustsRunId])
   @@index([periodId, employeeId])
   @@index([employeeId])
   @@index([componentId])
@@ -378,6 +418,9 @@ model PayrollRun {
   periodId         String    @map("period_id")
   payGroupId       String    @map("pay_group_id")
   status           RunStatus @default(DRAFT)
+  createdById      String?   @map("created_by_id")
+  submittedById    String?   @map("submitted_by_id")
+  submittedAt      DateTime? @map("submitted_at")
   computedById     String?   @map("computed_by_id")
   computedAt       DateTime? @map("computed_at")
   approvedById     String?   @map("approved_by_id")
@@ -397,6 +440,9 @@ model PayrollRun {
   payGroup             PayGroup             @relation(fields: [payGroupId], references: [id], onDelete: Restrict)
   computedBy           User?                @relation("RunComputedBy", fields: [computedById], references: [id], onDelete: Restrict)
   approvedBy           User?                @relation("RunApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  createdBy            User?                @relation("RunCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  submittedBy          User?                @relation("RunSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  adjustmentInputs     PayrollInput[]       @relation("InputAdjustsRun")
   employees            PayrollRunEmployee[]
   exports              BankExport[]
   carryForwardsCreated CarryForward[]       @relation("CarryForwardFrom")
@@ -406,6 +452,8 @@ model PayrollRun {
   @@index([payGroupId])
   @@index([computedById])
   @@index([approvedById])
+  @@index([createdById])
+  @@index([submittedById])
   @@map("payroll_runs")
 }
 
@@ -428,9 +476,11 @@ model PayrollRunEmployee {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  run      PayrollRun    @relation(fields: [runId], references: [id], onDelete: Restrict)
-  employee Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  lines    PayrollLine[]
+  run            PayrollRun        @relation(fields: [runId], references: [id], onDelete: Restrict)
+  employee       Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lines          PayrollLine[]
+  deliveries     PayslipDelivery[]
+  paymentResults PaymentResult[]
 
   @@unique([runId, employeeId])
   @@index([employeeId])
@@ -526,14 +576,88 @@ model BankExport {
   generatedAt   DateTime         @default(now()) @map("generated_at")
   status        BankExportStatus @default(GENERATED)
 
-  run         PayrollRun @relation(fields: [runId], references: [id], onDelete: Restrict)
-  bank        Bank       @relation(fields: [bankId], references: [id], onDelete: Restrict)
-  generatedBy User       @relation(fields: [generatedById], references: [id], onDelete: Restrict)
+  run         PayrollRun      @relation(fields: [runId], references: [id], onDelete: Restrict)
+  bank        Bank            @relation(fields: [bankId], references: [id], onDelete: Restrict)
+  generatedBy User            @relation(fields: [generatedById], references: [id], onDelete: Restrict)
+  results     PaymentResult[]
 
   @@unique([runId, bankId, version])
   @@index([bankId])
   @@index([generatedById])
   @@map("bank_exports")
+}
+
+// ───────────────────────────── Delivery / payment results ─────────────────────────────
+
+/// Every email or SMS the system sends (or queues in the development outbox).
+model OutboundMessage {
+  id          String          @id @default(cuid())
+  channel     DeliveryChannel
+  recipient   String          @db.VarChar(191)
+  subject     String?         @db.VarChar(200)
+  body        String          @db.Text
+  status      MessageStatus   @default(QUEUED)
+  provider    String          @db.VarChar(40)
+  providerRef String?         @map("provider_ref") @db.VarChar(191)
+  error       String?         @db.VarChar(500)
+  createdById String?         @map("created_by_id")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  sentAt      DateTime?       @map("sent_at")
+
+  createdBy  User?             @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  deliveries PayslipDelivery[]
+
+  @@index([status, createdAt])
+  @@index([recipient])
+  @@index([createdById])
+  @@map("outbound_messages")
+}
+
+/// A payslip sent to an employee by email or SMS link. Only the SHA-256 of the link token is stored.
+model PayslipDelivery {
+  id            String          @id @default(cuid())
+  runEmployeeId String          @map("run_employee_id")
+  channel       DeliveryChannel
+  recipient     String          @db.VarChar(191)
+  tokenHash     String          @unique @map("token_hash") @db.Char(64)
+  expiresAt     DateTime        @map("expires_at")
+  messageId     String?         @map("message_id")
+  openedAt      DateTime?       @map("opened_at")
+  openCount     Int             @default(0) @map("open_count")
+  createdById   String          @map("created_by_id")
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  runEmployee PayrollRunEmployee @relation(fields: [runEmployeeId], references: [id], onDelete: Restrict)
+  message     OutboundMessage?   @relation(fields: [messageId], references: [id], onDelete: Restrict)
+  createdBy   User               @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([runEmployeeId])
+  @@index([messageId])
+  @@index([createdById])
+  @@map("payslip_deliveries")
+}
+
+/// Per-payee outcome reported back by the bank or mobile money provider for an exported file.
+model PaymentResult {
+  id            String        @id @default(cuid())
+  bankExportId  String        @map("bank_export_id")
+  runEmployeeId String        @map("run_employee_id")
+  status        PaymentStatus
+  amount        BigInt
+  reference     String?       @db.VarChar(100)
+  reason        String?       @db.VarChar(500)
+  uploadedById  String        @map("uploaded_by_id")
+  uploadedAt    DateTime      @default(now()) @map("uploaded_at")
+
+  bankExport  BankExport         @relation(fields: [bankExportId], references: [id], onDelete: Restrict)
+  runEmployee PayrollRunEmployee @relation(fields: [runEmployeeId], references: [id], onDelete: Restrict)
+  uploadedBy  User               @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@unique([bankExportId, runEmployeeId])
+  @@index([runEmployeeId])
+  @@index([status])
+  @@index([uploadedById])
+  @@map("payment_results")
 }
 
 // ───────────────────────────── Audit / settings ─────────────────────────────

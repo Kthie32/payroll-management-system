@@ -74,6 +74,26 @@ describe('payroll immutability triggers', () => {
     await expect(db.payrollRun.delete({ where: { id: run.id } })).rejects.toThrow(/RUN_IMMUTABLE/);
   });
 
+  it('freezes who created and submitted a run once it is APPROVED', async () => {
+    const { run } = await makeRunWithLine(db, 'APPROVED');
+    const someone = await db.user.create({
+      data: {
+        email: `preparer-${Date.now()}@test.local`,
+        name: 'Preparer',
+        passwordHash: 'x',
+      },
+    });
+    for (const data of [
+      { createdById: someone.id },
+      { submittedById: someone.id },
+      { submittedAt: new Date() },
+    ]) {
+      await expect(db.payrollRun.update({ where: { id: run.id }, data })).rejects.toThrow(
+        /RUN_IMMUTABLE/,
+      );
+    }
+  });
+
   it('allows only one non-rejected run per period', async () => {
     const { run, period } = await makeRunWithLine(db, 'DRAFT');
     await expect(

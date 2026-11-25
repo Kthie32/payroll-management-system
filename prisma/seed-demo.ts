@@ -17,6 +17,17 @@ import { approveRun, createRun, submitRun } from '@/lib/payroll/server/workflow'
 import type { RoleCode } from '@prisma/client';
 
 const DEMO_PASSWORD = 'Demo!Pass2026';
+const COMPANY_NAME = 'Magezi Harvest Limited';
+const OLD_DEMO_COMPANY = 'Demo Company (U) Ltd';
+const ESTHER_WALLET = '256772445566';
+
+/** Demo contact details: firstname.lastname@mageziharvest.example and a 2567XXXXXXXX phone. */
+function demoEmail(first: string, last: string): string {
+  return `${first}.${last}@mageziharvest.example`.toLowerCase();
+}
+function demoPhone(staffNo: string): string {
+  return `2567710${staffNo.slice(-3)}00`.slice(0, 12);
+}
 
 const USERS: Array<{ email: string; name: string; role: RoleCode }> = [
   { email: 'hr@example.com', name: 'Harriet HR', role: 'HR_OFFICER' },
@@ -140,7 +151,7 @@ const EMPLOYEES: DemoEmployee[] = [
     group: 'Casual Workers',
     hire: '2026-10-01',
     dailyRate: 25_000,
-    bank: 'Post Bank Uganda',
+    bank: 'PostBank Uganda',
     account: '2200011122233',
   },
   {
@@ -152,8 +163,9 @@ const EMPLOYEES: DemoEmployee[] = [
     group: 'Casual Workers',
     hire: '2026-10-01',
     dailyRate: 25_000,
-    bank: 'Post Bank Uganda',
-    account: '2200044455566',
+    // Paid by mobile money: the account number is the wallet phone number.
+    bank: 'MTN Mobile Money',
+    account: ESTHER_WALLET,
   },
   {
     staffNo: 'DEMO010',
@@ -169,9 +181,141 @@ const EMPLOYEES: DemoEmployee[] = [
   },
 ];
 
+/** Sets createdById if the workflow has not already done so (only allowed before approval). */
+async function markPreparer(runId: string, userId: string) {
+  await db.payrollRun.updateMany({
+    where: { id: runId, createdById: null },
+    data: { createdById: userId },
+  });
+}
+async function markSubmitter(runId: string, userId: string) {
+  await db.payrollRun.updateMany({
+    where: { id: runId, submittedById: null },
+    data: { submittedById: userId, submittedAt: new Date() },
+  });
+}
+
+/**
+ * Brings demo data created by an earlier version of this script up to date (idempotent):
+ * company name, employee emails/phones, Esther's MTN MoMo wallet, and run preparer/submitter
+ * backfilled from the audit log.
+ */
+async function upgradeExistingDemo(adminId: string) {
+  const changes: string[] = [];
+  await db.$transaction(async (tx) => {
+    const company = await tx.setting.findUnique({ where: { key: 'company.name' } });
+    if (company && company.value === OLD_DEMO_COMPANY) {
+      await tx.setting.update({ where: { key: 'company.name' }, data: { value: COMPANY_NAME } });
+      await withAudit(tx, {
+        actorId: adminId,
+        action: 'SETTING_UPDATED',
+        entity: 'Setting',
+        entityId: company.id,
+        before: { 'company.name': company.value },
+        after: { 'company.name': COMPANY_NAME },
+        ip: null,
+      });
+      changes.push('company name');
+    }
+
+    for (const e of EMPLOYEES) {
+      const emp = await tx.employee.findUnique({ where: { staffNo: e.staffNo } });
+      if (!emp || (emp.email && emp.phone)) continue;
+      const data = {
+        email: emp.email ?? demoEmail(e.firstName, e.lastName),
+        phone: emp.phone ?? (e.staffNo === 'DEMO009' ? ESTHER_WALLET : demoPhone(e.staffNo)),
+      };
+      await tx.employee.update({ where: { id: emp.id }, data });
+      await withAudit(tx, {
+        actorId: adminId,
+        action: 'EMPLOYEE_UPDATED',
+        entity: 'Employee',
+        entityId: emp.id,
+        before: { email: emp.email, phone: emp.phone },
+        after: data,
+        ip: null,
+      });
+      changes.push(`contact details for ${e.staffNo}`);
+    }
+
+    const esther = await tx.employee.findUnique({ where: { staffNo: 'DEMO009' } });
+    const momo = await tx.bank.findUnique({ where: { code: 'MTNMOMO' } });
+    if (esther && momo) {
+      const active = await tx.employeeBankAccount.findFirst({
+        where: { employeeId: esther.id, isActive: true },
+      });
+      if (!active || active.bankId !== momo.id) {
+        if (active) {
+          await tx.employeeBankAccount.update({
+            where: { id: active.id },
+            data: { isActive: false },
+          });
+        }
+        const acc = await tx.employeeBankAccount.create({
+          data: {
+            employeeId: esther.id,
+            bankId: momo.id,
+            accountNoEnc: encrypt(ESTHER_WALLET),
+            accountNoLast4: last4(ESTHER_WALLET),
+            accountName: `${esther.firstName} ${esther.lastName}`,
+            effectiveFrom: new Date('2026-11-01T00:00:00Z'),
+          },
+        });
+        await withAudit(tx, {
+          actorId: adminId,
+          action: 'BANK_ACCOUNT_ADDED',
+          entity: 'EmployeeBankAccount',
+          entityId: acc.id,
+          before: active ? { bankId: active.bankId, accountNoLast4: active.accountNoLast4 } : null,
+          after: { bankId: momo.id, accountNoLast4: acc.accountNoLast4, kind: 'MOBILE_MONEY' },
+          ip: null,
+        });
+        changes.push('Esther MTN MoMo wallet');
+      }
+    }
+  });
+
+  // Backfill preparer/submitter from the audit trail.
+  const runs = await db.payrollRun.findMany({
+    where: { OR: [{ createdById: null }, { submittedById: null, status: { not: 'DRAFT' } }] },
+    select: { id: true, status: true, createdById: true, submittedById: true },
+  });
+  for (const run of runs) {
+    const events = await db.auditLog.findMany({
+      where: {
+        entity: 'PayrollRun',
+        entityId: run.id,
+        action: { in: ['PAYROLL_RUN_CREATED', 'PAYROLL_RUN_SUBMITTED'] },
+      },
+      orderBy: { at: 'asc' },
+    });
+    const created = events.find((x) => x.action === 'PAYROLL_RUN_CREATED');
+    const submitted = events.filter((x) => x.action === 'PAYROLL_RUN_SUBMITTED').at(-1);
+    const data: { createdById?: string; submittedById?: string; submittedAt?: Date } = {};
+    if (!run.createdById && created?.actorId) data.createdById = created.actorId;
+    if (!run.submittedById && submitted?.actorId) {
+      data.submittedById = submitted.actorId;
+      data.submittedAt = submitted.at;
+    }
+    if (Object.keys(data).length === 0) continue;
+    await db.payrollRun.update({ where: { id: run.id }, data });
+    changes.push(`preparer/submitter for run ${run.id}`);
+  }
+  return changes;
+}
+
 async function main() {
   if (await db.employee.findUnique({ where: { staffNo: 'DEMO001' } })) {
-    console.log('Demo data already present — nothing to do.');
+    const admin = await db.user.findFirstOrThrow({
+      where: { roles: { some: { role: { code: 'SYSTEM_ADMIN' } } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const changes = await upgradeExistingDemo(admin.id);
+    console.log(
+      changes.length
+        ? `Demo data already present — upgraded: ${changes.join(', ')}.`
+        : 'Demo data already present and up to date — nothing to do.',
+    );
     return;
   }
   const admin = await db.user.findFirstOrThrow({
@@ -202,11 +346,12 @@ async function main() {
 
   // Company settings
   const company: Record<string, string> = {
-    'company.name': 'Demo Company (U) Ltd',
+    'company.name': COMPANY_NAME,
     'company.tin': '1000123456',
     'company.nssfEmployerNo': 'NS000123456',
     'company.address': 'Plot 1, Kampala Road, Kampala',
-    'payslip.footer': 'This is a computer-generated payslip. Queries: payroll@example.com',
+    'payslip.footer':
+      'This is a computer-generated payslip. Queries: payroll@mageziharvest.example',
   };
   for (const [key, value] of Object.entries(company)) {
     await db.setting.upsert({ where: { key }, update: {}, create: { key, value } });
@@ -238,6 +383,8 @@ async function main() {
         departmentId: depts[e.dept] ?? null,
         jobTitle: e.job,
         hireDate: new Date(`${e.hire}T00:00:00Z`),
+        email: demoEmail(e.firstName, e.lastName),
+        phone: e.staffNo === 'DEMO009' ? ESTHER_WALLET : demoPhone(e.staffNo),
         tin: `10${e.staffNo.slice(-3)}45678`.slice(0, 10),
         nssfNo: `NSF${e.staffNo.slice(-3)}2026`,
         lstDistrict: 'Kampala',
@@ -331,8 +478,10 @@ async function main() {
     },
   });
   const octRun = await createRun(oct.id, payrollOfficer, null);
+  await markPreparer(octRun.id, payrollOfficer);
   await computeRun(octRun.id, payrollOfficer, null);
   await submitRun(octRun.id, payrollOfficer, null);
+  await markSubmitter(octRun.id, payrollOfficer);
   await approveRun(octRun.id, approver, null);
 
   // November: bonus for Sarah, compute only (awaiting review and submission)
@@ -343,6 +492,7 @@ async function main() {
     null,
   );
   const novRun = await createRun(nov.id, payrollOfficer, null);
+  await markPreparer(novRun.id, payrollOfficer);
   await computeRun(novRun.id, payrollOfficer, null);
 
   // Casuals: days worked in the first November week

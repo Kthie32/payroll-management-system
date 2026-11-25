@@ -16,13 +16,7 @@ import {
 import { db } from '@/lib/db';
 import { can, requirePermission } from '@/lib/rbac';
 import { EmployeesNav } from './employees-nav';
-import {
-  dateFmt,
-  fullName,
-  STATUS_BADGE,
-  STATUS_LABELS,
-  WORKER_TYPE_LABELS,
-} from './labels';
+import { dateFmt, fullName, STATUS_BADGE, STATUS_LABELS, WORKER_TYPE_LABELS } from './labels';
 import { employeeWhere, PAGE_SIZE, pageHref, parseFilters } from './query';
 
 export const metadata = { title: 'Employees · Payroll' };
@@ -190,7 +184,9 @@ export default async function EmployeesPage({
                     <TableCell className="hidden text-sm md:table-cell">
                       {e.department?.name ?? '—'}
                     </TableCell>
-                    <TableCell className="hidden text-sm md:table-cell">{e.payGroup.name}</TableCell>
+                    <TableCell className="hidden text-sm md:table-cell">
+                      {e.payGroup.name}
+                    </TableCell>
                     <TableCell className="hidden whitespace-nowrap text-sm lg:table-cell">
                       {dateFmt.format(e.hireDate)}
                     </TableCell>

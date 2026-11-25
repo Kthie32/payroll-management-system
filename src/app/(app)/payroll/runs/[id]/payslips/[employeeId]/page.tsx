@@ -32,9 +32,13 @@ function Section({
             <tr key={`${l.code}-${i}`} className="border-b align-top">
               <td className="py-1.5 pr-3">
                 {l.label}
-                {l.note ? <span className="block text-xs text-muted-foreground">{l.note}</span> : null}
+                {l.note ? (
+                  <span className="block text-xs text-muted-foreground">{l.note}</span>
+                ) : null}
               </td>
-              <td className="whitespace-nowrap py-1.5 text-right tabular-nums">{formatUgx(l.amount)}</td>
+              <td className="whitespace-nowrap py-1.5 text-right tabular-nums">
+                {formatUgx(l.amount)}
+              </td>
             </tr>
           ))}
           {total !== undefined ? (
@@ -54,7 +58,7 @@ export default async function PayslipPage({
 }: {
   params: Promise<{ id: string; employeeId: string }>;
 }) {
-  await requirePermission('payroll.view');
+  await requirePermission('payslips.view');
   const { id, employeeId } = await params;
   const [p] = await loadPayslips(id, employeeId);
   if (!p) notFound();
@@ -63,7 +67,10 @@ export default async function PayslipPage({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <Link href={`/payroll/runs/${p.runId}`} className="text-sm text-muted-foreground hover:underline">
+        <Link
+          href={`/payroll/runs/${p.runId}`}
+          className="text-sm text-muted-foreground hover:underline"
+        >
           Back to run
         </Link>
         <Button asChild>
@@ -84,8 +91,12 @@ export default async function PayslipPage({
           <header className="flex flex-col justify-between gap-3 sm:flex-row">
             <div>
               <p className="text-lg font-semibold">{p.company.name || 'Company name not set'}</p>
-              {p.company.address ? <p className="text-sm text-muted-foreground">{p.company.address}</p> : null}
-              {p.company.tin ? <p className="text-sm text-muted-foreground">TIN {p.company.tin}</p> : null}
+              {p.company.address ? (
+                <p className="text-sm text-muted-foreground">{p.company.address}</p>
+              ) : null}
+              {p.company.tin ? (
+                <p className="text-sm text-muted-foreground">TIN {p.company.tin}</p>
+              ) : null}
             </div>
             <div className="sm:text-right">
               <p className="font-semibold">
@@ -94,7 +105,9 @@ export default async function PayslipPage({
               <p className="text-sm text-muted-foreground">
                 {formatIsoDate(p.period.start)} – {formatIsoDate(p.period.end)}
               </p>
-              <p className="text-sm text-muted-foreground">Pay date {formatIsoDate(p.period.payDate)}</p>
+              <p className="text-sm text-muted-foreground">
+                Pay date {formatIsoDate(p.period.payDate)}
+              </p>
             </div>
           </header>
 
@@ -118,7 +131,12 @@ export default async function PayslipPage({
 
           <Section title="Earnings" lines={p.earnings} totalLabel="Gross pay" total={p.gross} />
           <Section title="Statutory deductions" lines={p.statutory} />
-          <Section title="Other deductions" lines={p.deductions} totalLabel="Total deductions" total={p.totalDeductions} />
+          <Section
+            title="Other deductions"
+            lines={p.deductions}
+            totalLabel="Total deductions"
+            total={p.totalDeductions}
+          />
 
           <div className="flex items-center justify-between rounded-md bg-muted p-4 text-lg font-semibold">
             <span>Net pay</span>

@@ -73,8 +73,7 @@ export function EmployeeForm({
   );
   const fe = state.fieldErrors ?? {};
 
-  const v = (name: keyof EmployeeFormDefaults) =>
-    pick(state.values, name, String(defaults[name]));
+  const v = (name: keyof EmployeeFormDefaults) => pick(state.values, name, String(defaults[name]));
   const checked = (name: 'payeApplicable' | 'nssfApplicable' | 'lstApplicable') =>
     state.values ? state.values[name] === 'on' : defaults[name];
 

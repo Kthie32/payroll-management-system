@@ -1,7 +1,10 @@
 import { Badge } from '@/components/ui/badge';
 import { STATUS_LABELS, type RunStatus } from '@/lib/payroll/status';
 
-const VARIANT: Record<RunStatus, 'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'outline'> = {
+const VARIANT: Record<
+  RunStatus,
+  'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'outline'
+> = {
   DRAFT: 'outline',
   COMPUTED: 'secondary',
   SUBMITTED: 'warning',

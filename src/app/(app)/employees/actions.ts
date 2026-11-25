@@ -26,6 +26,7 @@ import {
   isoDateSchema,
 } from '@/lib/employees/validation';
 import { assertPermission } from '@/lib/rbac';
+import type { Permission } from '@/lib/rbac/permissions';
 
 export interface ActionState {
   error?: string;
@@ -51,8 +52,8 @@ function fieldErrors(error: z.ZodError): Record<string, string> {
   return out;
 }
 
-async function actor() {
-  const user = await assertPermission('employees.edit');
+async function actor(permission: Permission = 'employees.edit') {
+  const user = await assertPermission(permission);
   return { id: user.id, ip: await currentIp() };
 }
 
@@ -183,7 +184,7 @@ export async function revealAccountAction(
   _prev: RevealState,
   formData: FormData,
 ): Promise<RevealState> {
-  const who = await actor();
+  const who = await actor('bank.reveal');
   const accountId = String(formData.get('accountId') ?? '');
   const account = await db.employeeBankAccount.findUnique({
     where: { id: accountId },
@@ -210,7 +211,7 @@ export async function assignComponentAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const who = await actor();
+  const who = await actor('pay.edit');
   const parsed = componentAssignmentSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     return {
@@ -226,7 +227,11 @@ export async function assignComponentAction(
   if (!component) return { error: 'Pay component not found.' };
   const value = componentValueFor(component.calcType, parsed.data.value);
   if (!value.ok) {
-    return { error: value.error, fieldErrors: { value: value.error }, values: formValues(formData) };
+    return {
+      error: value.error,
+      fieldErrors: { value: value.error },
+      values: formValues(formData),
+    };
   }
 
   const failed = await attempt(async () => {
@@ -259,7 +264,7 @@ export async function endComponentAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const who = await actor();
+  const who = await actor('pay.edit');
   const parsed = endSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid request.' };
   const failed = await attempt(async () => {

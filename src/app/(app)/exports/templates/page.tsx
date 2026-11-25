@@ -19,8 +19,8 @@ export const dynamic = 'force-dynamic';
 
 export default async function TemplatesPage() {
   const user = await requireUser();
-  const canEdit = can(user.roles, 'settings.edit');
-  if (!canEdit && !can(user.roles, 'payroll.export')) redirect('/dashboard?denied=1');
+  const canEdit = can(user.roles, 'templates.manage');
+  if (!canEdit && !can(user.roles, 'exports.view')) redirect('/dashboard?denied=1');
 
   const banks = await db.bank.findMany({
     orderBy: { name: 'asc' },
@@ -33,7 +33,7 @@ export default async function TemplatesPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        {can(user.roles, 'payroll.export') ? (
+        {can(user.roles, 'exports.view') ? (
           <Link href="/exports" className="text-sm text-muted-foreground hover:underline">
             ← Bank exports
           </Link>
@@ -48,13 +48,15 @@ export default async function TemplatesPage() {
         <CardHeader>
           <CardTitle>Banks</CardTitle>
           <CardDescription>
-            Banks are managed in Settings. Active accounts shows how many employees are paid
-            through each bank.
+            Banks are managed in Settings. Active accounts shows how many employees are paid through
+            each bank.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0 sm:px-6">
           {banks.length === 0 ? (
-            <p className="px-6 text-sm text-muted-foreground sm:px-0">No banks have been set up yet.</p>
+            <p className="px-6 text-sm text-muted-foreground sm:px-0">
+              No banks have been set up yet.
+            </p>
           ) : (
             <Table>
               <TableHeader>
@@ -83,7 +85,9 @@ export default async function TemplatesPage() {
                       <TableCell className="text-right tabular-nums">{b._count.accounts}</TableCell>
                       <TableCell className="text-right">
                         <Button asChild size="sm" variant="outline">
-                          <Link href={`/exports/templates/${b.id}`}>{canEdit ? 'Edit' : 'View'}</Link>
+                          <Link href={`/exports/templates/${b.id}`}>
+                            {canEdit ? 'Edit' : 'View'}
+                          </Link>
                         </Button>
                       </TableCell>
                     </TableRow>

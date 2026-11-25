@@ -5,7 +5,11 @@ import { db } from '@/lib/db';
 import { toUgx } from '@/lib/money';
 import { formatIsoDate, toIsoDate } from '@/lib/payroll/dates';
 import { INPUT_CSV_COLUMNS } from '@/lib/payroll/csv-inputs';
-import { inputComponents, isPeriodLocked, periodEmployees } from '@/lib/payroll/server/periods-inputs';
+import {
+  inputComponents,
+  isPeriodLocked,
+  periodEmployees,
+} from '@/lib/payroll/server/periods-inputs';
 import { can, requirePermission } from '@/lib/rbac';
 import { ActionForm } from '../../../_components/action-form';
 import { clearImportedAction } from '../../../actions';
@@ -31,7 +35,8 @@ export default async function InputsPage({ params }: { params: Promise<{ id: str
       orderBy: [{ employee: { staffNo: 'asc' } }, { component: { code: 'asc' } }],
     }),
   ]);
-  const editable = !locked && can(user.roles, 'payroll.prepare');
+  const editable = !locked && can(user.roles, 'payroll.inputs');
+  const canImport = !locked && can(user.roles, 'payroll.prepare');
 
   const manual: Record<string, string> = {};
   for (const i of inputs) {
@@ -51,7 +56,10 @@ export default async function InputsPage({ params }: { params: Promise<{ id: str
     <div className="space-y-6">
       <div>
         <p className="text-sm">
-          <Link href={`/payroll/periods?payGroupId=${period.payGroupId}`} className="text-muted-foreground hover:underline">
+          <Link
+            href={`/payroll/periods?payGroupId=${period.payGroupId}`}
+            className="text-muted-foreground hover:underline"
+          >
             Pay periods
           </Link>
         </p>
@@ -112,13 +120,17 @@ export default async function InputsPage({ params }: { params: Promise<{ id: str
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {editable ? <CsvImport periodId={period.id} /> : <p className="text-sm text-muted-foreground">Read only.</p>}
+          {canImport ? (
+            <CsvImport periodId={period.id} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Read only.</p>
+          )}
           {imported.length > 0 ? (
             <div className="space-y-2">
               <p className="text-sm">
                 {imported.length} imported input(s) are included in this period.
               </p>
-              {editable ? (
+              {canImport ? (
                 <ActionForm
                   action={clearImportedAction}
                   fields={{ periodId: period.id }}
@@ -129,7 +141,10 @@ export default async function InputsPage({ params }: { params: Promise<{ id: str
               ) : null}
               <ul className="max-h-64 overflow-auto rounded-md border text-sm">
                 {imported.map((i) => (
-                  <li key={i.id} className="flex justify-between gap-3 border-b px-3 py-1.5 last:border-0">
+                  <li
+                    key={i.id}
+                    className="flex justify-between gap-3 border-b px-3 py-1.5 last:border-0"
+                  >
                     <span>
                       {i.employee.staffNo} · {i.component.code}
                     </span>

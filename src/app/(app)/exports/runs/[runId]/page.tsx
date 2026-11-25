@@ -37,7 +37,7 @@ const dateTime = new Intl.DateTimeFormat('en-GB', {
 });
 
 export default async function RunExportPage({ params }: { params: Promise<{ runId: string }> }) {
-  const user = await requirePermission('payroll.export');
+  const user = await requirePermission('exports.view');
   const { runId } = await params;
 
   let loaded;
@@ -55,7 +55,9 @@ export default async function RunExportPage({ params }: { params: Promise<{ runI
       include: { bank: true, generatedBy: { select: { name: true } } },
     }),
     currentExportBankIds(db, runId),
-    Promise.all(plan.groups.map(async (g) => [g.bankId, await templateForBank(db, g.bankId)] as const)),
+    Promise.all(
+      plan.groups.map(async (g) => [g.bankId, await templateForBank(db, g.bankId)] as const),
+    ),
   ]);
   const templateByBank = new Map(templates);
   const exportable = EXPORTABLE_STATUSES.includes(run.status);
@@ -146,7 +148,10 @@ export default async function RunExportPage({ params }: { params: Promise<{ runI
                 ) : (
                   <ul className="divide-y text-sm">
                     {bankExports.map((e) => (
-                      <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                      <li
+                        key={e.id}
+                        className="flex flex-wrap items-center justify-between gap-2 py-2"
+                      >
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2">
                             <span className="font-medium">Version {e.version}</span>
@@ -166,7 +171,10 @@ export default async function RunExportPage({ params }: { params: Promise<{ runI
                             {e.rowCount} rows · UGX {fmtMoney(toUgx(e.totalAmount))} ·{' '}
                             {dateTime.format(e.generatedAt)} by {e.generatedBy.name}
                           </div>
-                          <div className="font-mono text-xs text-muted-foreground" title={e.fileSha256}>
+                          <div
+                            className="font-mono text-xs text-muted-foreground"
+                            title={e.fileSha256}
+                          >
                             SHA-256 {e.fileSha256.slice(0, 16)}…
                           </div>
                         </div>

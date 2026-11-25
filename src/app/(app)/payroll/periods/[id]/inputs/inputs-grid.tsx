@@ -47,7 +47,11 @@ export function InputsGrid({
                   <span className="block text-xs font-semibold">{c.code}</span>
                   <span className="block text-[11px] font-normal text-muted-foreground">
                     {c.isQuantity ? 'quantity' : 'amount'}
-                    {c.kind === 'DEDUCTION' ? ' · deduction' : c.kind === 'EMPLOYER' ? ' · employer' : ''}
+                    {c.kind === 'DEDUCTION'
+                      ? ' · deduction'
+                      : c.kind === 'EMPLOYER'
+                        ? ' · employer'
+                        : ''}
                   </span>
                 </th>
               ))}
