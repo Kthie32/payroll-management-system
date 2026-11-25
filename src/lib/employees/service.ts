@@ -14,6 +14,7 @@ import {
   type EmployeeFormInput,
   isoToDate,
   LOAN_MANAGED_CODES,
+  normalisePaymentAccount,
   rangesOverlap,
 } from './validation';
 
@@ -43,6 +44,8 @@ function employeeData(input: EmployeeFormInput) {
     tin: input.tin ?? null,
     nssfNo: input.nssfNo ?? null,
     lstDistrict: input.lstDistrict ?? null,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
     payeApplicable: input.payeApplicable,
     nssfApplicable: input.nssfApplicable,
     lstApplicable: input.lstApplicable,
@@ -67,6 +70,8 @@ function auditView(e: {
   nssfNo: string | null;
   ninEnc?: string | null;
   lstDistrict: string | null;
+  email?: string | null;
+  phone?: string | null;
   payeApplicable: boolean;
   nssfApplicable: boolean;
   lstApplicable: boolean;
@@ -89,6 +94,8 @@ function auditView(e: {
     nssfNo: e.nssfNo,
     ninOnFile: Boolean(e.ninEnc),
     lstDistrict: e.lstDistrict,
+    email: e.email ?? null,
+    phone: e.phone ?? null,
     payeApplicable: e.payeApplicable,
     nssfApplicable: e.nssfApplicable,
     lstApplicable: e.lstApplicable,
@@ -166,16 +173,9 @@ export async function updateEmployee(
 }
 
 export type StatusChange =
-  | { kind: 'exit'; exitDate: string }
-  | { kind: 'suspend' }
-  | { kind: 'reactivate' };
+  { kind: 'exit'; exitDate: string } | { kind: 'suspend' } | { kind: 'reactivate' };
 
-export async function changeStatus(
-  tx: Tx,
-  employeeId: string,
-  change: StatusChange,
-  actor: Actor,
-) {
+export async function changeStatus(tx: Tx, employeeId: string, change: StatusChange, actor: Actor) {
   const before = await tx.employee.findUnique({ where: { id: employeeId } });
   if (!before) throw new EmployeeError('Employee not found.');
 
@@ -193,7 +193,8 @@ export async function changeStatus(
       break;
     }
     case 'suspend':
-      if (before.status !== 'ACTIVE') throw new EmployeeError('Only active employees can be suspended.');
+      if (before.status !== 'ACTIVE')
+        throw new EmployeeError('Only active employees can be suspended.');
       data = { status: 'SUSPENDED' };
       action = 'EMPLOYEE_SUSPENDED';
       break;
@@ -210,14 +211,17 @@ export async function changeStatus(
     action,
     entity: 'Employee',
     entityId: employeeId,
-    before: { status: before.status, exitDate: before.exitDate ? dateToIso(before.exitDate) : null },
+    before: {
+      status: before.status,
+      exitDate: before.exitDate ? dateToIso(before.exitDate) : null,
+    },
     after: { status: after.status, exitDate: after.exitDate ? dateToIso(after.exitDate) : null },
     ip: actor.ip,
   });
   return after;
 }
 
-// ── Bank accounts ───────────────────────────────────────────────────────
+// ── Payment details (bank account or mobile money wallet) ───────────────
 
 export interface NewBankAccount {
   employeeId: string;
@@ -229,8 +233,10 @@ export interface NewBankAccount {
 }
 
 /**
- * Adds a bank account and makes it the active one. The previous active account is deactivated
- * first, because the database allows only one active account per employee.
+ * Adds a payment destination (bank account or mobile money wallet) and makes it the active one.
+ * The previous active one is deactivated first, because the database allows only one active
+ * destination per employee. For mobile money the account number is the normalised wallet number
+ * (2567XXXXXXXX) and there is no branch.
  */
 export async function addBankAccount(tx: Tx, input: NewBankAccount, actor: Actor) {
   const employee = await tx.employee.findUnique({
@@ -239,7 +245,11 @@ export async function addBankAccount(tx: Tx, input: NewBankAccount, actor: Actor
   });
   if (!employee) throw new EmployeeError('Employee not found.');
   const bank = await tx.bank.findUnique({ where: { id: input.bankId } });
-  if (!bank) throw new EmployeeError('Bank not found.');
+  if (!bank) throw new EmployeeError('Bank or mobile money provider not found.');
+  const checked = normalisePaymentAccount(bank, input.accountNo);
+  if (!checked.ok) throw new EmployeeError(checked.error);
+  const accountNo = checked.accountNo;
+  const branchCode = bank.kind === 'MOBILE_MONEY' ? null : (input.branchCode ?? null);
 
   const previous = await tx.employeeBankAccount.findFirst({
     where: { employeeId: input.employeeId, isActive: true },
@@ -252,9 +262,9 @@ export async function addBankAccount(tx: Tx, input: NewBankAccount, actor: Actor
     data: {
       employeeId: input.employeeId,
       bankId: input.bankId,
-      branchCode: input.branchCode ?? null,
-      accountNoEnc: encrypt(input.accountNo),
-      accountNoLast4: last4(input.accountNo),
+      branchCode,
+      accountNoEnc: encrypt(accountNo),
+      accountNoLast4: last4(accountNo),
       accountName: input.accountName,
       effectiveFrom: isoToDate(input.effectiveFrom),
       isActive: true,
@@ -271,6 +281,7 @@ export async function addBankAccount(tx: Tx, input: NewBankAccount, actor: Actor
     after: {
       employeeId: input.employeeId,
       bank: bank.code,
+      kind: bank.kind,
       branchCode: account.branchCode,
       last4: account.accountNoLast4,
       accountName: account.accountName,
@@ -355,16 +366,24 @@ export async function assignComponent(tx: Tx, input: NewAssignment, actor: Actor
 }
 
 /** Sets (or brings forward) the end date of an assignment. Assignments are never deleted. */
-export async function endComponent(tx: Tx, assignmentId: string, effectiveTo: string, actor: Actor) {
+export async function endComponent(
+  tx: Tx,
+  assignmentId: string,
+  effectiveTo: string,
+  actor: Actor,
+) {
   const row = await tx.employeeComponent.findUnique({
     where: { id: assignmentId },
     include: { component: { select: { code: true } } },
   });
   if (!row) throw new EmployeeError('Assignment not found.');
   const before = assignmentRange(row);
-  if (effectiveTo < before.from) throw new EmployeeError('End date cannot be before the start date.');
+  if (effectiveTo < before.from)
+    throw new EmployeeError('End date cannot be before the start date.');
   if (before.to !== null && effectiveTo > before.to) {
-    throw new EmployeeError(`This assignment already ends on ${before.to}. Assign a new period instead.`);
+    throw new EmployeeError(
+      `This assignment already ends on ${before.to}. Assign a new period instead.`,
+    );
   }
   await tx.employeeComponent.update({
     where: { id: assignmentId },
@@ -387,13 +406,17 @@ export async function loadImportLookups(client: PrismaClient | Tx): Promise<Impo
   const [payGroups, departments, banks, staff] = await Promise.all([
     client.payGroup.findMany({ select: { id: true, name: true } }),
     client.department.findMany({ select: { id: true, name: true } }),
-    client.bank.findMany({ select: { id: true, name: true, code: true } }),
+    client.bank.findMany({ select: { id: true, name: true, code: true, kind: true } }),
     client.employee.findMany({ select: { staffNo: true } }),
   ]);
-  const bankMap = new Map<string, string>();
+  const bankMap = new Map<
+    string,
+    { id: string; kind: (typeof banks)[number]['kind']; code: string }
+  >();
   for (const b of banks) {
-    bankMap.set(b.code.toLowerCase(), b.id);
-    bankMap.set(b.name.toLowerCase(), b.id);
+    const info = { id: b.id, kind: b.kind, code: b.code };
+    bankMap.set(b.code.toLowerCase(), info);
+    bankMap.set(b.name.toLowerCase(), info);
   }
   return {
     payGroups: new Map(payGroups.map((p) => [p.name.toLowerCase(), p.id])),
@@ -450,6 +473,8 @@ export async function commitImport(
         nssfNo: r.nssfNo,
         ninEnc: r.nin ? encrypt(r.nin) : null,
         lstDistrict: r.lstDistrict,
+        email: r.email,
+        phone: r.phone,
         payeApplicable: r.payeApplicable,
         nssfApplicable: r.nssfApplicable,
         lstApplicable: r.lstApplicable,

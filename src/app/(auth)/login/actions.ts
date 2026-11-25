@@ -38,7 +38,11 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   // Send the user straight to their next onboarding step (if any) so the URL matches the page.
   // The middleware and requireUser() enforce the same rule independently.
   const user = await db.user.findUnique({
-    where: { email: String(email ?? '').trim().toLowerCase() },
+    where: {
+      email: String(email ?? '')
+        .trim()
+        .toLowerCase(),
+    },
     select: {
       mustChangePassword: true,
       totpEnrolledAt: true,

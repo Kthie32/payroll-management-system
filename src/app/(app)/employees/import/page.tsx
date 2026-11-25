@@ -15,7 +15,7 @@ export default async function ImportPage() {
   const [payGroups, departments, banks] = await Promise.all([
     db.payGroup.findMany({ select: { name: true }, orderBy: { name: 'asc' } }),
     db.department.findMany({ select: { name: true }, orderBy: { name: 'asc' } }),
-    db.bank.findMany({ select: { code: true }, orderBy: { code: 'asc' } }),
+    db.bank.findMany({ select: { code: true, kind: true }, orderBy: { code: 'asc' } }),
   ]);
 
   return (
@@ -38,7 +38,7 @@ export default async function ImportPage() {
               <Download aria-hidden /> Download template
             </a>
           </Button>
-          <dl className="grid gap-3 sm:grid-cols-3">
+          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <dt className="text-xs uppercase tracking-wide text-muted-foreground">pay_group</dt>
               <dd>{payGroups.map((p) => p.name).join(', ') || 'None set up'}</dd>
@@ -48,8 +48,26 @@ export default async function ImportPage() {
               <dd>{departments.map((d) => d.name).join(', ') || 'None set up'}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">bank (code)</dt>
-              <dd>{banks.map((b) => b.code).join(', ') || 'None set up'}</dd>
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                bank (bank code)
+              </dt>
+              <dd>
+                {banks
+                  .filter((b) => b.kind === 'BANK')
+                  .map((b) => b.code)
+                  .join(', ') || 'None set up'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                bank (mobile money code)
+              </dt>
+              <dd>
+                {banks
+                  .filter((b) => b.kind === 'MOBILE_MONEY')
+                  .map((b) => b.code)
+                  .join(', ') || 'None set up'}
+              </dd>
             </div>
           </dl>
           <details>
@@ -64,7 +82,10 @@ export default async function ImportPage() {
           <CardTitle>2. Upload, check and import</CardTitle>
           <CardDescription>
             Nothing is saved until you confirm. A basic_salary value creates a BASIC pay component
-            from the hire date; bank details create the active bank account.
+            from the hire date. Payment details create the active payment destination: for a bank
+            give account_no (and branch_code); for mobile money put the provider code in bank and
+            the wallet phone number in wallet_number (e.g. 0772123456). email and phone are used to
+            send payslips.
           </CardDescription>
         </CardHeader>
         <CardContent>

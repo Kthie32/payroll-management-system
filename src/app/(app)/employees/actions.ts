@@ -171,7 +171,7 @@ export async function addBankAccountAction(
   });
   if (failed) return { ...failed, values: formValues(formData) };
   revalidatePath(`/employees/${parsed.data.employeeId}`);
-  return { message: 'Bank account added and set as the active account.' };
+  return { message: 'Payment details added and set as active.' };
 }
 
 export interface RevealState {

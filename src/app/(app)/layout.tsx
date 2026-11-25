@@ -1,12 +1,12 @@
-import { NAV_ITEMS } from '@/components/shell/nav-items';
+import { navItemsFor } from '@/components/shell/nav-items';
 import { Sidebar } from '@/components/shell/sidebar';
-import { can, requireUser, ROLE_LABELS } from '@/lib/rbac';
+import { requireUser, ROLE_LABELS } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const items = NAV_ITEMS.filter((i) => can(user.roles, i.permission));
+  const items = navItemsFor(user.roles);
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <Sidebar

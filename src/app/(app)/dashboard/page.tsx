@@ -10,7 +10,7 @@ import { can, requirePermission, ROLE_LABELS, type Permission } from '@/lib/rbac
 import { fmtCompactUgx, fmtDate, fmtMoney, runStatusLabel } from '@/lib/reports/format';
 import { TrendChart } from './trend-chart';
 
-export const metadata = { title: 'Dashboard · Payroll' };
+export const metadata = { title: 'Dashboard · Magezi Payroll' };
 export const dynamic = 'force-dynamic';
 
 const RULE_LABELS: Record<string, string> = { PAYE_RES: 'PAYE (residents)', NSSF: 'NSSF' };
@@ -29,7 +29,8 @@ const QUICK_LINKS: { href: string; label: string; permission: Permission }[] = [
   { href: '/reports', label: 'Reports', permission: 'reports.view' },
   { href: '/loans', label: 'Loans', permission: 'loans.view' },
   { href: '/settings', label: 'Settings', permission: 'settings.view' },
-  { href: '/admin/users', label: 'Users', permission: 'users.manage' },
+  { href: '/admin/users', label: 'Users', permission: 'users.view' },
+  { href: '/admin/banks', label: 'Banks and mobile money', permission: 'banks.manage' },
   { href: '/audit', label: 'Audit log', permission: 'audit.view' },
 ];
 
@@ -60,7 +61,9 @@ function Kpi({
         <CardDescription>{title}</CardDescription>
         <CardTitle className="text-2xl tabular-nums">{value}</CardTitle>
       </CardHeader>
-      {hint ? <CardContent className="pt-0 text-xs text-muted-foreground">{hint}</CardContent> : null}
+      {hint ? (
+        <CardContent className="pt-0 text-xs text-muted-foreground">{hint}</CardContent>
+      ) : null}
     </Card>
   );
   return href ? (
@@ -80,8 +83,10 @@ export default async function DashboardPage({
   const user = await requirePermission('dashboard.view');
   const { denied } = await searchParams;
   const today = kampalaToday();
-  const d = await loadDashboard(db, today);
   const roles = user.roles;
+  // Roles without pay.view (System Admin) get no money figures; they are not even queried.
+  const canSeePay = can(roles, 'pay.view');
+  const d = await loadDashboard(db, today, { includePay: canSeePay });
   const isApprover = can(roles, 'payroll.approve');
   const isPreparer = can(roles, 'payroll.prepare');
   const canExport = can(roles, 'exports.generate');
@@ -102,7 +107,10 @@ export default async function DashboardPage({
       {denied ? <FormMessage message="You don’t have access to that page." /> : null}
 
       {seesRules && ruleProblems.length > 0 ? (
-        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm"
+        >
           <p className="font-medium text-destructive">Statutory rules need attention</p>
           <ul className="mt-1 list-disc pl-5">
             {ruleProblems.map((r) => (
@@ -120,24 +128,36 @@ export default async function DashboardPage({
           value={fmtMoney(d.activeEmployees)}
           href={can(roles, 'employees.view') ? '/employees' : undefined}
         />
-        <Kpi
-          title="Last approved payroll · net"
-          value={d.lastRun ? fmtCompactUgx(d.lastRun.net) : '—'}
-          hint={
-            d.lastRun
-              ? `${d.lastRun.payGroup}, ${fmtDate(d.lastRun.payDate)} · gross ${fmtCompactUgx(d.lastRun.gross)} · ${d.lastRun.headcount} paid · ${runStatusLabel(d.lastRun.status)}`
-              : 'No approved payroll yet.'
-          }
-        />
+        {canSeePay ? (
+          <Kpi
+            title="Last approved payroll · net"
+            value={d.lastRun?.net != null ? fmtCompactUgx(d.lastRun.net) : '—'}
+            hint={
+              d.lastRun
+                ? `${d.lastRun.payGroup}, ${fmtDate(d.lastRun.payDate)} · gross ${fmtCompactUgx(d.lastRun.gross ?? 0)} · ${d.lastRun.headcount} paid · ${runStatusLabel(d.lastRun.status)}`
+                : 'No approved payroll yet.'
+            }
+          />
+        ) : (
+          <Kpi
+            title="Last approved payroll"
+            value={d.lastRun ? fmtDate(d.lastRun.payDate) : '—'}
+            hint={
+              d.lastRun
+                ? `${d.lastRun.payGroup} · ${d.lastRun.headcount} paid · ${runStatusLabel(d.lastRun.status)}`
+                : 'No approved payroll yet.'
+            }
+          />
+        )}
         <Kpi
           title="Next pay date"
           value={d.nextPayDate ? fmtDate(d.nextPayDate.payDate) : '—'}
           hint={d.nextPayDate ? d.nextPayDate.payGroup : 'No upcoming pay period set up.'}
         />
         <Kpi
-          title="Missing bank accounts"
+          title="Missing payment details"
           value={fmtMoney(d.missingBankAccounts)}
-          hint="Active employees without an active bank account."
+          hint="Active employees without an active bank account or mobile money wallet."
           tone={d.missingBankAccounts > 0 ? 'warning' : undefined}
           href={can(roles, 'employees.view') ? '/employees' : undefined}
         />
@@ -178,16 +198,18 @@ export default async function DashboardPage({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Gross and net pay, last 6 months</CardTitle>
-            <CardDescription>Approved runs only, by pay month (UGX).</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TrendChart points={d.trend} />
-          </CardContent>
-        </Card>
-        <Card>
+        {canSeePay ? (
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Gross and net pay, last 6 months</CardTitle>
+              <CardDescription>Approved runs only, by pay month (UGX).</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TrendChart points={d.trend} />
+            </CardContent>
+          </Card>
+        ) : null}
+        <Card className={canSeePay ? undefined : 'lg:col-span-3'}>
           <CardHeader>
             <CardTitle>Statutory rules</CardTitle>
             <CardDescription>Versions in force today.</CardDescription>

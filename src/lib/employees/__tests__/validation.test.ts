@@ -6,10 +6,13 @@ import {
   dateToIso,
   employeeFormSchema,
   employeeFormValues,
+  formatUgPhone,
   isIsoDate,
   isoToDate,
   maskAccount,
   maskNin,
+  normalisePaymentAccount,
+  normaliseUgPhone,
   parseFlag,
   parseUgxInput,
   percentToBp,
@@ -165,24 +168,92 @@ describe('rangesOverlap', () => {
 });
 
 describe('bankAccountSchema', () => {
-  it('strips spaces from the account number', () => {
-    const r = bankAccountSchema.parse({
-      employeeId: 'e',
-      bankId: 'b',
-      accountNo: '9030 0123 4567',
-      accountName: 'Jane',
-      effectiveFrom: '2026-01-01',
-    });
-    expect(r.accountNo).toBe('903001234567');
-  });
-  it('rejects non-digit account numbers', () => {
+  it('requires an institution and a number', () => {
     const r = bankAccountSchema.safeParse({
       employeeId: 'e',
-      bankId: 'b',
-      accountNo: 'ABC123',
+      bankId: '',
+      accountNo: '',
       accountName: 'Jane',
       effectiveFrom: '2026-01-01',
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe('normaliseUgPhone', () => {
+  it.each([
+    ['0772 445 566', '256772445566'],
+    ['772445566', '256772445566'],
+    ['+256 772-445-566', '256772445566'],
+    ['256772445566', '256772445566'],
+    ['00256752123456', '256752123456'],
+  ])('%s → %s', (raw, out) => {
+    expect(normaliseUgPhone(raw)).toBe(out);
+  });
+  it.each(['12345', '0772 44556', '+254722000000', 'abc'])('rejects %s', (raw) => {
+    expect(normaliseUgPhone(raw)).toBeNull();
+  });
+  it('formats for display', () => {
+    expect(formatUgPhone('256772445566')).toBe('+256 772 445 566');
+  });
+});
+
+describe('normalisePaymentAccount', () => {
+  const bank = { kind: 'BANK' as const, code: 'STANBIC' };
+  const mtn = { kind: 'MOBILE_MONEY' as const, code: 'MTNMOMO' };
+  const airtel = { kind: 'MOBILE_MONEY' as const, code: 'AIRTELMONEY' };
+
+  it('strips spaces from bank account numbers', () => {
+    expect(normalisePaymentAccount(bank, '9030 0123 4567')).toEqual({
+      ok: true,
+      accountNo: '903001234567',
+    });
+  });
+  it('rejects non-digit bank account numbers', () => {
+    expect(normalisePaymentAccount(bank, 'ABC123').ok).toBe(false);
+  });
+  it('normalises an MTN wallet', () => {
+    expect(normalisePaymentAccount(mtn, '0772 445566')).toEqual({
+      ok: true,
+      accountNo: '256772445566',
+    });
+  });
+  it('rejects an Airtel number for MTN and vice versa', () => {
+    expect(normalisePaymentAccount(mtn, '0752123456').ok).toBe(false);
+    expect(normalisePaymentAccount(airtel, '0772445566').ok).toBe(false);
+    expect(normalisePaymentAccount(airtel, '0752123456')).toEqual({
+      ok: true,
+      accountNo: '256752123456',
+    });
+  });
+  it('accepts any Ugandan number for an unknown provider', () => {
+    expect(normalisePaymentAccount({ kind: 'MOBILE_MONEY', code: 'OTHER' }, '0712000111')).toEqual({
+      ok: true,
+      accountNo: '256712000111',
+    });
+  });
+  it('rejects a non-phone wallet', () => {
+    expect(normalisePaymentAccount(mtn, '9030012345678').ok).toBe(false);
+  });
+});
+
+describe('employee contact fields', () => {
+  it('normalises email and phone, and allows them blank', () => {
+    const ok = employeeFormSchema.parse({
+      ...base,
+      email: ' Jane@Example.com ',
+      phone: '0772445566',
+    });
+    expect(ok.email).toBe('jane@example.com');
+    expect(ok.phone).toBe('256772445566');
+    const blank = employeeFormSchema.parse({ ...base, email: '', phone: '' });
+    expect(blank.email).toBeUndefined();
+    expect(blank.phone).toBeUndefined();
+  });
+  it('rejects invalid email and phone', () => {
+    const r = employeeFormSchema.safeParse({ ...base, email: 'nope', phone: '123' });
+    expect(r.success).toBe(false);
+    const paths = r.success ? [] : r.error.issues.map((i) => i.path[0]);
+    expect(paths).toEqual(expect.arrayContaining(['email', 'phone']));
   });
 });

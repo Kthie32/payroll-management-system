@@ -15,8 +15,11 @@ const lookups = (): ImportLookups => ({
   ]),
   departments: new Map([['finance', 'dep-fin']]),
   banks: new Map([
-    ['stanbic', 'bank-stanbic'],
-    ['stanbic bank uganda', 'bank-stanbic'],
+    ['stanbic', { id: 'bank-stanbic', kind: 'BANK' as const, code: 'STANBIC' }],
+    ['stanbic bank uganda', { id: 'bank-stanbic', kind: 'BANK' as const, code: 'STANBIC' }],
+    ['mtnmomo', { id: 'mm-mtn', kind: 'MOBILE_MONEY' as const, code: 'MTNMOMO' }],
+    ['mtn mobile money', { id: 'mm-mtn', kind: 'MOBILE_MONEY' as const, code: 'MTNMOMO' }],
+    ['airtelmoney', { id: 'mm-airtel', kind: 'MOBILE_MONEY' as const, code: 'AIRTELMONEY' }],
   ]),
   existingStaffNos: new Set(['EMP999']),
 });
@@ -83,8 +86,13 @@ describe('validateImport', () => {
   });
 
   it('rejects too many rows and oversized files', () => {
-    const rows = Array.from({ length: MAX_IMPORT_ROWS + 1 }, (_, i) => `E${i},A,B,Monthly Staff,2026-01-01`);
-    expect(validateImport(`${header}\n${rows.join('\n')}`, lookups()).fileErrors[0]).toMatch(/limit/);
+    const rows = Array.from(
+      { length: MAX_IMPORT_ROWS + 1 },
+      (_, i) => `E${i},A,B,Monthly Staff,2026-01-01`,
+    );
+    expect(validateImport(`${header}\n${rows.join('\n')}`, lookups()).fileErrors[0]).toMatch(
+      /limit/,
+    );
     expect(validateImport('x'.repeat(900_001), lookups()).fileErrors[0]).toMatch(/900 KB/);
   });
 
@@ -119,8 +127,7 @@ describe('validateImport', () => {
       'nin must be 14 letters or digits',
       'paye_applicable must be yes or no',
       'basic_salary must be a whole amount in UGX',
-      'bank "NOBANK" not found (use the bank code or name)',
-      'account_no must be 6–20 digits',
+      'bank "NOBANK" not found (use the bank/provider code or name)',
     ]) {
       expect(errors).toContain(expected);
     }
@@ -134,8 +141,8 @@ describe('validateImport', () => {
       lookups(),
     );
     expect(r.rows[0]?.errors).toEqual([
-      'bank is required when bank details are given',
-      'account_no is required when bank details are given',
+      'bank is required when payment details are given (bank or provider)',
+      'account_no (or wallet_number for mobile money) is required with payment details',
     ]);
   });
 
@@ -168,5 +175,74 @@ describe('validateImport', () => {
   it('surfaces CSV syntax problems as file errors without losing rows', () => {
     const r = validateImport(`${header}\nE1,"Jane,Doe,Monthly Staff,2026-01-01`, lookups());
     expect(r.fileErrors.length).toBeGreaterThan(0);
+  });
+});
+
+describe('contact details and mobile money', () => {
+  const head = 'staff_no,first_name,last_name,pay_group,hire_date';
+  const base = 'E100,Esther,Nabirye,Casual Workers,2026-10-01';
+
+  it('normalises email and phone', () => {
+    const r = validateImport(
+      `${head},email,phone
+${base},Esther@Example.COM,0772 445 566`,
+      lookups(),
+    );
+    expect(r.rows[0]?.errors).toEqual([]);
+    expect(r.rows[0]?.row?.email).toBe('esther@example.com');
+    expect(r.rows[0]?.row?.phone).toBe('256772445566');
+  });
+
+  it('rejects a bad phone and email', () => {
+    const r = validateImport(
+      `${head},email,phone
+${base},not-an-email,12345`,
+      lookups(),
+    );
+    expect(r.rows[0]?.errors.join(' ')).toMatch(/email/);
+    expect(r.rows[0]?.errors.join(' ')).toMatch(/phone/);
+  });
+
+  it('accepts an MTN wallet via wallet_number and normalises it', () => {
+    const r = validateImport(
+      `${head},payment_method,bank,wallet_number
+${base},MOBILE_MONEY,MTN Mobile Money,+256 772 445566`,
+      lookups(),
+    );
+    expect(r.rows[0]?.errors).toEqual([]);
+    expect(r.rows[0]?.row?.bankAccount).toEqual({
+      bankId: 'mm-mtn',
+      branchCode: null,
+      accountNo: '256772445566',
+      accountName: 'Esther Nabirye',
+    });
+  });
+
+  it('rejects an Airtel number on MTN', () => {
+    const r = validateImport(
+      `${head},bank,wallet_number
+${base},MTNMOMO,0752123456`,
+      lookups(),
+    );
+    expect(r.rows[0]?.row).toBeNull();
+    expect(r.rows[0]?.errors.join(' ')).toMatch(/not a MTN Mobile Money number/);
+  });
+
+  it('rejects a payment_method that does not match the institution', () => {
+    const r = validateImport(
+      `${head},payment_method,bank,account_no
+${base},MOBILE_MONEY,STANBIC,9030012345678`,
+      lookups(),
+    );
+    expect(r.rows[0]?.errors.join(' ')).toMatch(/is a bank, but payment_method is MOBILE_MONEY/);
+  });
+
+  it('rejects a branch code on mobile money', () => {
+    const r = validateImport(
+      `${head},bank,branch_code,wallet_number
+${base},AIRTELMONEY,001,0752123456`,
+      lookups(),
+    );
+    expect(r.rows[0]?.errors.join(' ')).toMatch(/branch_code does not apply/);
   });
 });

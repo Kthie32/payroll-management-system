@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Payroll',
-  description: 'Payroll management system',
+  title: 'Magezi Payroll',
+  description: 'Payroll for Magezi Harvest Limited',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

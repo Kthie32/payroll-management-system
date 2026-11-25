@@ -71,16 +71,22 @@ export function ruleStatuses(
   const warnLimit = addDays(today, warnDays);
   return required.map((rule) => {
     const covering = versions.filter(
-      (v) => v.rule === rule && v.effectiveFrom <= today && (!v.effectiveTo || v.effectiveTo >= today),
+      (v) =>
+        v.rule === rule && v.effectiveFrom <= today && (!v.effectiveTo || v.effectiveTo >= today),
     );
     const inForce = covering.find((v) => v.active && v.approved);
     if (inForce) {
       if (inForce.effectiveTo && inForce.effectiveTo <= warnLimit) {
         const successor = versions.some(
-          (v) => v.rule === rule && v.active && v.approved && v.effectiveFrom > inForce.effectiveTo!,
+          (v) =>
+            v.rule === rule && v.active && v.approved && v.effectiveFrom > inForce.effectiveTo!,
         );
         if (!successor) {
-          return { rule, state: 'expiring', detail: `Ends ${inForce.effectiveTo}; no approved successor.` };
+          return {
+            rule,
+            state: 'expiring',
+            detail: `Ends ${inForce.effectiveTo}; no approved successor.`,
+          };
         }
       }
       return { rule, state: 'ok', detail: `In force since ${inForce.effectiveFrom}.` };

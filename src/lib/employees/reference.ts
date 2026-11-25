@@ -1,5 +1,8 @@
-/** Departments and banks: create, rename and delete (blocked while in use). Audited. */
-import type { Prisma } from '@prisma/client';
+/**
+ * Departments and payment institutions (banks and mobile money providers): create, rename and
+ * delete (blocked while in use). Audited.
+ */
+import type { InstitutionType, Prisma } from '@prisma/client';
 import { withAudit } from '@/lib/audit';
 import { type Actor, EmployeeError } from './service';
 
@@ -12,7 +15,8 @@ export interface DepartmentInput {
 
 async function assertDepartmentNameFree(tx: Tx, name: string, exceptId?: string) {
   const clash = await tx.department.findUnique({ where: { name }, select: { id: true } });
-  if (clash && clash.id !== exceptId) throw new EmployeeError(`Department "${name}" already exists.`);
+  if (clash && clash.id !== exceptId)
+    throw new EmployeeError(`Department "${name}" already exists.`);
 }
 
 export async function saveDepartment(
@@ -75,13 +79,21 @@ export async function deleteDepartment(tx: Tx, id: string, actor: Actor) {
 export interface BankInput {
   name: string;
   code: string;
+  kind: InstitutionType;
 }
+
+const KIND_LABEL: Record<InstitutionType, string> = {
+  BANK: 'bank',
+  MOBILE_MONEY: 'mobile money provider',
+};
 
 export async function saveBank(tx: Tx, id: string | null, input: BankInput, actor: Actor) {
   const nameClash = await tx.bank.findUnique({ where: { name: input.name }, select: { id: true } });
-  if (nameClash && nameClash.id !== id) throw new EmployeeError(`Bank "${input.name}" already exists.`);
+  if (nameClash && nameClash.id !== id)
+    throw new EmployeeError(`Bank "${input.name}" already exists.`);
   const codeClash = await tx.bank.findUnique({ where: { code: input.code }, select: { id: true } });
-  if (codeClash && codeClash.id !== id) throw new EmployeeError(`Bank code ${input.code} is already used.`);
+  if (codeClash && codeClash.id !== id)
+    throw new EmployeeError(`Bank code ${input.code} is already used.`);
 
   if (!id) {
     const row = await tx.bank.create({ data: input });
@@ -95,15 +107,26 @@ export async function saveBank(tx: Tx, id: string | null, input: BankInput, acto
     });
     return row;
   }
-  const before = await tx.bank.findUnique({ where: { id } });
+  const before = await tx.bank.findUnique({
+    where: { id },
+    include: { _count: { select: { accounts: true } } },
+  });
   if (!before) throw new EmployeeError('Bank not found.');
+  // Account numbers are validated by kind (digits vs wallet numbers), so the kind is fixed once
+  // any employee uses this institution.
+  if (before.kind !== input.kind && before._count.accounts > 0) {
+    throw new EmployeeError(
+      `"${before.name}" is used by ${before._count.accounts} payment account(s), so it cannot be ` +
+        `changed from a ${KIND_LABEL[before.kind]} to a ${KIND_LABEL[input.kind]}.`,
+    );
+  }
   const row = await tx.bank.update({ where: { id }, data: input });
   await withAudit(tx, {
     actorId: actor.id,
     action: 'BANK_UPDATED',
     entity: 'Bank',
     entityId: id,
-    before: { name: before.name, code: before.code },
+    before: { name: before.name, code: before.code, kind: before.kind },
     after: input,
     ip: actor.ip,
   });
@@ -129,7 +152,7 @@ export async function deleteBank(tx: Tx, id: string, actor: Actor) {
     action: 'BANK_DELETED',
     entity: 'Bank',
     entityId: id,
-    before: { name: row.name, code: row.code },
+    before: { name: row.name, code: row.code, kind: row.kind },
     ip: actor.ip,
   });
 }

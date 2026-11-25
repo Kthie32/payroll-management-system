@@ -52,7 +52,9 @@ describe('rule statuses', () => {
   });
 
   it('unapproved when the covering version is not approved', () => {
-    expect(ruleStatuses([v({ approved: false })], ['PAYE_RES'], today)[0]?.state).toBe('unapproved');
+    expect(ruleStatuses([v({ approved: false })], ['PAYE_RES'], today)[0]?.state).toBe(
+      'unapproved',
+    );
   });
 
   it('inactive when only inactive or out-of-range versions exist', () => {
@@ -67,7 +69,9 @@ describe('rule statuses', () => {
     expect(ruleStatuses([ending], ['PAYE_RES'], today)[0]?.state).toBe('expiring');
     const successor = v({ effectiveFrom: '2026-12-11' });
     expect(ruleStatuses([ending, successor], ['PAYE_RES'], today)[0]?.state).toBe('ok');
-    expect(ruleStatuses([v({ effectiveTo: '2027-06-30' })], ['PAYE_RES'], today)[0]?.state).toBe('ok');
+    expect(ruleStatuses([v({ effectiveTo: '2027-06-30' })], ['PAYE_RES'], today)[0]?.state).toBe(
+      'ok',
+    );
   });
 });
 

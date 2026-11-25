@@ -45,6 +45,8 @@ export default async function EditEmployeePage({ params }: { params: Promise<{ i
               tin: e.tin ?? '',
               nssfNo: e.nssfNo ?? '',
               lstDistrict: e.lstDistrict ?? '',
+              email: e.email ?? '',
+              phone: e.phone ? `0${e.phone.slice(3)}` : '',
               payeApplicable: e.payeApplicable,
               nssfApplicable: e.nssfApplicable,
               lstApplicable: e.lstApplicable,

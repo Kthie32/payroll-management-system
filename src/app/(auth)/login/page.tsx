@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoginForm } from './login-form';
 
-export const metadata = { title: 'Sign in · Payroll' };
+export const metadata = { title: 'Sign in · Magezi Payroll' };
 
 export default async function LoginPage({
   searchParams,
@@ -22,8 +22,8 @@ export default async function LoginPage({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Payroll</CardTitle>
-        <CardDescription>Sign in with your work email.</CardDescription>
+        <CardTitle>Magezi Harvest Limited</CardTitle>
+        <CardDescription>Payroll. Sign in with your work email.</CardDescription>
       </CardHeader>
       <CardContent>
         <LoginForm callbackUrl={target} />

@@ -24,6 +24,8 @@ export interface EmployeeFormDefaults {
   tin: string;
   nssfNo: string;
   lstDistrict: string;
+  email: string;
+  phone: string;
   payeApplicable: boolean;
   nssfApplicable: boolean;
   lstApplicable: boolean;
@@ -44,6 +46,8 @@ export const EMPTY_EMPLOYEE: EmployeeFormDefaults = {
   tin: '',
   nssfNo: '',
   lstDistrict: '',
+  email: '',
+  phone: '',
   payeApplicable: true,
   nssfApplicable: true,
   lstApplicable: true,
@@ -149,6 +153,37 @@ export function EmployeeForm({
                 </option>
               ))}
             </NativeSelect>
+          </Field>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-base font-semibold">Contact</h2>
+        <p className="text-sm text-muted-foreground">
+          Used to send payslips by email or as an SMS link.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field name="email" error={fe.email} label="Email">
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              maxLength={191}
+              autoComplete="off"
+              defaultValue={v('email')}
+              aria-invalid={Boolean(fe.email)}
+            />
+          </Field>
+          <Field name="phone" error={fe.phone} label="Mobile phone" hint="e.g. 0772 123456">
+            <Input
+              id="phone"
+              name="phone"
+              type="tel"
+              maxLength={20}
+              autoComplete="off"
+              defaultValue={v('phone')}
+              aria-invalid={Boolean(fe.phone)}
+            />
           </Field>
         </div>
       </section>

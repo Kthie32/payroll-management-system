@@ -13,6 +13,59 @@ export interface RefField {
   maxLength: number;
   required?: boolean;
   mono?: boolean;
+  /** Renders a select instead of a text input. The first option is the default. */
+  options?: readonly { value: string; label: string }[];
+}
+
+const SELECT_CLASS =
+  'flex w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm ' +
+  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+
+/** One input or select for a reference field. */
+function FieldControl({
+  field,
+  id,
+  defaultValue,
+  compact,
+}: {
+  field: RefField;
+  id: string;
+  defaultValue: string;
+  compact?: boolean;
+}) {
+  if (field.options) {
+    return (
+      <select
+        id={id}
+        name={field.name}
+        required={field.required}
+        defaultValue={defaultValue || field.options[0]?.value}
+        className={`${SELECT_CLASS} ${compact ? 'h-8' : 'h-9'}`}
+      >
+        {field.options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <Input
+      id={id}
+      name={field.name}
+      required={field.required}
+      maxLength={field.maxLength}
+      defaultValue={defaultValue}
+      className={compact ? 'h-8' : undefined}
+    />
+  );
+}
+
+/** Display text for a field value (option label for selects). */
+function displayValue(field: RefField, value: string | undefined): string | undefined {
+  if (!value) return value;
+  return field.options?.find((o) => o.value === value)?.label ?? value;
 }
 
 type RefAction = (prev: ActionState, fd: FormData) => Promise<ActionState>;
@@ -26,11 +79,9 @@ export function RefCreateForm({ fields, save }: { fields: RefField[]; save: RefA
         {fields.map((f) => (
           <div key={f.name} className="space-y-2">
             <Label htmlFor={`new-${f.name}`}>{f.label}</Label>
-            <Input
+            <FieldControl
+              field={f}
               id={`new-${f.name}`}
-              name={f.name}
-              required={f.required}
-              maxLength={f.maxLength}
               defaultValue={state.values?.[f.name] ?? ''}
             />
           </div>
@@ -86,13 +137,11 @@ export function RefRow({
               <Label htmlFor={`${id}-${f.name}`} className="text-xs">
                 {f.label}
               </Label>
-              <Input
+              <FieldControl
+                field={f}
                 id={`${id}-${f.name}`}
-                name={f.name}
-                required={f.required}
-                maxLength={f.maxLength}
                 defaultValue={saveState.values?.[f.name] ?? values[f.name] ?? ''}
-                className="h-8"
+                compact
               />
             </div>
           ))}
@@ -115,7 +164,7 @@ export function RefRow({
         <p className="text-xs text-muted-foreground">
           {fields
             .slice(1)
-            .map((f) => (values[f.name] ? `${f.label}: ${values[f.name]}` : null))
+            .map((f) => (values[f.name] ? `${f.label}: ${displayValue(f, values[f.name])}` : null))
             .filter(Boolean)
             .concat(usage)
             .join(' · ')}

@@ -76,7 +76,7 @@ export async function saveBankAction(_p: ActionState, fd: FormData): Promise<Act
     async () => {
       await db.$transaction((tx) => saveBank(tx, id ?? null, parsed.data, who));
     },
-    '/employees/banks',
+    '/admin/banks',
     id ? 'Bank updated.' : 'Bank added.',
   );
 }
@@ -87,7 +87,7 @@ export async function deleteBankAction(_p: ActionState, fd: FormData): Promise<A
   return run(
     fd,
     () => db.$transaction((tx) => deleteBank(tx, id, who)),
-    '/employees/banks',
+    '/admin/banks',
     'Bank deleted.',
   );
 }

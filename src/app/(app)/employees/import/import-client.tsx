@@ -83,8 +83,8 @@ export function ImportClient() {
           <div className="space-y-1">
             <p className="font-medium">Import complete</p>
             <p>
-              {summary.created} employee(s) created, {summary.bankAccounts} bank account(s) and{' '}
-              {summary.basicSalaries} basic salary assignment(s) added
+              {summary.created} employee(s) created, {summary.bankAccounts} payment destination(s)
+              and {summary.basicSalaries} basic salary assignment(s) added
               {summary.skipped ? `, ${summary.skipped} row(s) skipped because of errors` : ''}.
             </p>
           </div>
@@ -181,7 +181,7 @@ export function ImportClient() {
                         {r.errors.length === 0 ? (
                           <span className="text-success">
                             Ready
-                            {r.row?.bankAccount ? ' · bank account' : ''}
+                            {r.row?.bankAccount ? ' · payment details' : ''}
                             {r.row?.basicSalary !== null && r.row?.basicSalary !== undefined
                               ? ' · basic salary'
                               : ''}

@@ -2,6 +2,8 @@
 
 import {
   BarChart3,
+  Building2,
+  Mail,
   HandCoins,
   LayoutDashboard,
   LogOut,
@@ -23,6 +25,8 @@ const ICONS: Record<NavIcon, LucideIcon> = {
   employees: Users,
   payroll: Wallet,
   exports: Landmark,
+  banks: Building2,
+  messages: Mail,
   reports: BarChart3,
   loans: HandCoins,
   settings: Settings,
@@ -47,7 +51,8 @@ export function Sidebar({
       {/* Desktop */}
       <aside className="hidden w-60 shrink-0 flex-col border-r bg-card md:flex">
         <div className="border-b px-5 py-4">
-          <p className="text-base font-semibold">Payroll</p>
+          <p className="text-base font-semibold leading-tight">Magezi Harvest</p>
+          <p className="text-xs text-muted-foreground">Payroll</p>
         </div>
         <nav className="flex-1 space-y-0.5 p-3" aria-label="Main">
           {items.map((item) => {
@@ -86,7 +91,9 @@ export function Sidebar({
       {/* Mobile */}
       <header className="sticky top-0 z-10 border-b bg-card md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
-          <p className="font-semibold">Payroll</p>
+          <p className="font-semibold">
+            Magezi Harvest <span className="font-normal text-muted-foreground">Payroll</span>
+          </p>
           <a href="/logout" className="text-sm text-muted-foreground">
             Sign out
           </a>

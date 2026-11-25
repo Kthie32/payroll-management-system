@@ -1,18 +1,26 @@
 import type { PrismaClient } from '@prisma/client';
 import { toUgx, type Ugx } from '@/lib/money';
 import { FINAL_STATUSES } from '@/lib/reports/load';
-import { buildTrend, ruleStatuses, trendStartMonth, type RuleStatus, type TrendPoint } from './summary';
+import {
+  buildTrend,
+  ruleStatuses,
+  trendStartMonth,
+  type RuleStatus,
+  type TrendPoint,
+} from './summary';
 
 export interface DashboardData {
   activeEmployees: number;
+  /** Active employees with no active bank account or mobile money wallet. */
   missingBankAccounts: number;
   lastRun: {
     id: string;
     payGroup: string;
     payDate: string;
     status: string;
-    gross: Ugx;
-    net: Ugx;
+    /** Null when the viewer may not see pay (no pay.view). */
+    gross: Ugx | null;
+    net: Ugx | null;
     headcount: number;
   } | null;
   nextPayDate: { payDate: string; payGroup: string } | null;
@@ -21,7 +29,16 @@ export interface DashboardData {
   awaitingExport: number;
   rules: RuleStatus[];
   lst: { active: boolean; bandCount: number };
+  /** Empty when the viewer may not see pay. */
   trend: TrendPoint[];
+}
+
+export interface DashboardOptions {
+  /**
+   * Whether money figures may be loaded. False for roles without pay.view (the System Admin):
+   * pay totals are then never queried, so they cannot leak to the page.
+   */
+  includePay: boolean;
 }
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -34,7 +51,11 @@ function bandCount(params: unknown): number {
 }
 
 /** Everything the dashboard shows. Safe on an empty database. `today` is an ISO date. */
-export async function loadDashboard(client: PrismaClient, today: string): Promise<DashboardData> {
+export async function loadDashboard(
+  client: PrismaClient,
+  today: string,
+  options: DashboardOptions = { includePay: true },
+): Promise<DashboardData> {
   const todayDate = new Date(`${today}T00:00:00Z`);
   const endMonth = today.slice(0, 7);
   const trendFrom = new Date(`${trendStartMonth(endMonth)}-01T00:00:00Z`);
@@ -51,7 +72,9 @@ export async function loadDashboard(client: PrismaClient, today: string): Promis
     trendRuns,
   ] = await Promise.all([
     client.employee.count({ where: { status: 'ACTIVE' } }),
-    client.employee.count({ where: { status: 'ACTIVE', bankAccounts: { none: { isActive: true } } } }),
+    client.employee.count({
+      where: { status: 'ACTIVE', bankAccounts: { none: { isActive: true } } },
+    }),
     client.payrollRun.findFirst({
       where: { status: { in: [...FINAL_STATUSES] } },
       orderBy: [{ period: { payDate: 'desc' } }, { approvedAt: 'desc' }],
@@ -78,23 +101,39 @@ export async function loadDashboard(client: PrismaClient, today: string): Promis
         params: true,
       },
     }),
-    client.payrollRun.findMany({
-      where: { status: { in: [...FINAL_STATUSES] }, period: { payDate: { gte: trendFrom } } },
-      select: { id: true, period: { select: { payDate: true } } },
-    }),
+    options.includePay
+      ? client.payrollRun.findMany({
+          where: { status: { in: [...FINAL_STATUSES] }, period: { payDate: { gte: trendFrom } } },
+          select: { id: true, period: { select: { payDate: true } } },
+        })
+      : Promise.resolve([]),
   ]);
 
   const runIds = [...trendRuns.map((r) => r.id), ...(lastRunRow ? [lastRunRow.id] : [])];
-  const sums = runIds.length
-    ? await client.payrollRunEmployee.groupBy({
-        by: ['runId'],
-        where: { runId: { in: runIds } },
-        _sum: { gross: true, net: true },
-        _count: { _all: true },
-      })
-    : [];
+  // Headcount is not pay; money totals are only summed when the viewer may see them.
+  const sums =
+    runIds.length && options.includePay
+      ? await client.payrollRunEmployee.groupBy({
+          by: ['runId'],
+          where: { runId: { in: runIds } },
+          _sum: { gross: true, net: true },
+          _count: { _all: true },
+        })
+      : [];
+  const headcounts =
+    runIds.length && !options.includePay
+      ? await client.payrollRunEmployee.groupBy({
+          by: ['runId'],
+          where: { runId: { in: runIds } },
+          _count: { _all: true },
+        })
+      : [];
   const sumByRun = new Map(sums.map((s) => [s.runId, s]));
+  const countByRun = new Map(headcounts.map((s) => [s.runId, s._count._all]));
   const sumOf = (runId: string) => {
+    if (!options.includePay) {
+      return { gross: null, net: null, headcount: countByRun.get(runId) ?? 0 };
+    }
     const s = sumByRun.get(runId);
     return {
       gross: toUgx(s?._sum.gross ?? 0n),
@@ -134,10 +173,20 @@ export async function loadDashboard(client: PrismaClient, today: string): Promis
     awaitingExport,
     rules: ruleStatuses(versions, ['PAYE_RES', 'NSSF'], today),
     lst: { active: Boolean(lstRow), bandCount: lstRow ? bandCount(lstRow.params) : 0 },
-    trend: buildTrend(
-      trendRuns.map((r) => ({ payDate: iso(r.period.payDate), ...sumOf(r.id) })),
-      endMonth,
-    ),
+    trend: options.includePay
+      ? buildTrend(
+          trendRuns.map((r) => {
+            const t = sumOf(r.id);
+            return {
+              payDate: iso(r.period.payDate),
+              gross: t.gross ?? 0,
+              net: t.net ?? 0,
+              headcount: t.headcount,
+            };
+          }),
+          endMonth,
+        )
+      : [],
   };
 }
 

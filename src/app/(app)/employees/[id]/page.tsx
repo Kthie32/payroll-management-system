@@ -18,12 +18,14 @@ import { db } from '@/lib/db';
 import {
   bpToPercent,
   dateToIso,
+  formatUgPhone,
   LOAN_MANAGED_CODES,
   maskAccount,
   maskNin,
 } from '@/lib/employees/validation';
+import { type EmployeeSection, employeeAccess, resolveSection } from '@/lib/employees/visibility';
 import { formatUgx, toUgx } from '@/lib/money';
-import { can, requirePermission } from '@/lib/rbac';
+import { requirePermission } from '@/lib/rbac';
 import { cn } from '@/lib/utils';
 import {
   dateFmt,
@@ -39,17 +41,16 @@ import { AssignComponentForm, EndComponentForm } from './component-forms';
 import { RevealAccount } from './reveal-account';
 import { StatusControls } from './status-controls';
 
-export const metadata = { title: 'Employee · Payroll' };
+export const metadata = { title: 'Employee · Magezi Payroll' };
 export const dynamic = 'force-dynamic';
 
-const TABS = [
-  { key: 'profile', label: 'Profile' },
-  { key: 'bank', label: 'Bank accounts' },
-  { key: 'components', label: 'Pay components' },
-  { key: 'loans', label: 'Loans' },
-  { key: 'history', label: 'Payroll history' },
-] as const;
-type TabKey = (typeof TABS)[number]['key'];
+const TAB_LABELS: Record<EmployeeSection, string> = {
+  profile: 'Profile',
+  payment: 'Payment details',
+  components: 'Pay components',
+  loans: 'Loans',
+  history: 'Payroll history',
+};
 
 export default async function EmployeePage({
   params,
@@ -59,13 +60,15 @@ export default async function EmployeePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await requirePermission('employees.view');
-  const canEdit = can(user.roles, 'employees.edit');
-  const canReveal = can(user.roles, 'bank.reveal');
-  const canEditPay = can(user.roles, 'pay.edit');
+  // What this user may see is decided on the server: sections they may not open are never
+  // queried or rendered (e.g. the System Admin never receives salary or payroll figures).
+  const access = employeeAccess(user.roles);
+  const canEdit = access.canEditProfile;
   const { id } = await params;
   const sp = await searchParams;
-  const tabParam = typeof sp.tab === 'string' ? sp.tab : 'profile';
-  const tab: TabKey = TABS.some((t) => t.key === tabParam) ? (tabParam as TabKey) : 'profile';
+  // Old links used ?tab=bank for payment details.
+  const requested = sp.tab === 'bank' ? 'payment' : typeof sp.tab === 'string' ? sp.tab : undefined;
+  const tab = resolveSection(requested, access);
 
   const e = await db.employee.findUnique({
     where: { id },
@@ -111,32 +114,37 @@ export default async function EmployeePage({
       {sp.saved ? <FormMessage tone="success" message="Changes saved." /> : null}
 
       <nav aria-label="Employee sections" className="flex gap-1 overflow-x-auto border-b">
-        {TABS.map((t) => (
+        {access.sections.map((key) => (
           <Link
-            key={t.key}
-            href={t.key === 'profile' ? `/employees/${e.id}` : `/employees/${e.id}?tab=${t.key}`}
-            aria-current={tab === t.key ? 'page' : undefined}
+            key={key}
+            href={key === 'profile' ? `/employees/${e.id}` : `/employees/${e.id}?tab=${key}`}
+            aria-current={tab === key ? 'page' : undefined}
             className={cn(
               '-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors',
-              tab === t.key
+              tab === key
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground',
             )}
           >
-            {t.label}
+            {TAB_LABELS[key]}
           </Link>
         ))}
       </nav>
 
       {tab === 'profile' ? <ProfileTab e={e} /> : null}
-      {tab === 'bank' ? (
-        <BankTab employee={e} canEdit={canEdit} canReveal={canReveal} today={today} />
+      {tab === 'payment' ? (
+        <BankTab
+          employee={e}
+          canEdit={access.canEditPayment}
+          canReveal={access.canRevealAccount}
+          today={today}
+        />
       ) : null}
-      {tab === 'components' ? (
-        <ComponentsTab employeeId={e.id} canEdit={canEditPay} today={today} />
+      {tab === 'components' && access.canSeePay ? (
+        <ComponentsTab employeeId={e.id} canEdit={access.canEditPay} today={today} />
       ) : null}
-      {tab === 'loans' ? <LoansTab employeeId={e.id} /> : null}
-      {tab === 'history' ? <HistoryTab employeeId={e.id} /> : null}
+      {tab === 'loans' && access.canSeePay ? <LoansTab employeeId={e.id} /> : null}
+      {tab === 'history' && access.canSeePay ? <HistoryTab employeeId={e.id} /> : null}
     </div>
   );
 }
@@ -174,6 +182,8 @@ function ProfileTab({ e }: { e: EmployeeWithRefs }) {
     ['NSSF number', e.nssfNo ?? '—'],
     ['National ID (NIN)', e.ninEnc ? maskNin(decrypt(e.ninEnc)) : '—'],
     ['LST district', e.lstDistrict ?? '—'],
+    ['Email', e.email ?? '—'],
+    ['Phone', e.phone ? formatUgPhone(e.phone) : '—'],
     ['PAYE applies', yesNo(e.payeApplicable)],
     ['NSSF applies', yesNo(e.nssfApplicable)],
     ['LST applies', yesNo(e.lstApplicable)],
@@ -194,7 +204,7 @@ function ProfileTab({ e }: { e: EmployeeWithRefs }) {
   );
 }
 
-// ── Bank accounts ───────────────────────────────────────────────────────
+// ── Payment details (bank account or mobile money wallet) ───────────────
 
 async function BankTab({
   employee,
@@ -211,10 +221,13 @@ async function BankTab({
     db.employeeBankAccount.findMany({
       where: { employeeId: employee.id },
       orderBy: [{ isActive: 'desc' }, { effectiveFrom: 'desc' }, { createdAt: 'desc' }],
-      include: { bank: { select: { name: true, code: true } } },
+      include: { bank: { select: { name: true, code: true, kind: true } } },
     }),
     canEdit
-      ? db.bank.findMany({ select: { id: true, name: true, code: true }, orderBy: { name: 'asc' } })
+      ? db.bank.findMany({
+          select: { id: true, name: true, code: true, kind: true },
+          orderBy: [{ kind: 'asc' }, { name: 'asc' }],
+        })
       : Promise.resolve([]),
   ]);
   const hasActive = accounts.some((a) => a.isActive);
@@ -223,17 +236,18 @@ async function BankTab({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Bank accounts</CardTitle>
+          <CardTitle>Payment details</CardTitle>
           <CardDescription>
-            Salary is paid into the active account. Earlier accounts are kept as history.
+            Net pay goes to the active bank account or mobile money wallet. Earlier ones are kept as
+            history.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0 sm:px-6">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Bank</TableHead>
-                <TableHead>Account</TableHead>
+                <TableHead>Paid through</TableHead>
+                <TableHead>Account / wallet</TableHead>
                 <TableHead className="hidden md:table-cell">Account name</TableHead>
                 <TableHead className="hidden sm:table-cell">From</TableHead>
                 <TableHead>Status</TableHead>
@@ -243,7 +257,7 @@ async function BankTab({
               {accounts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    No bank account on file.
+                    No payment details on file. This employee cannot be paid until they are added.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -251,6 +265,9 @@ async function BankTab({
                   <TableRow key={a.id}>
                     <TableCell className="text-sm">
                       {a.bank.name}
+                      {a.bank.kind === 'MOBILE_MONEY' ? (
+                        <p className="text-xs text-muted-foreground">Mobile money</p>
+                      ) : null}
                       {a.branchCode ? (
                         <p className="text-xs text-muted-foreground">Branch {a.branchCode}</p>
                       ) : null}
@@ -284,10 +301,10 @@ async function BankTab({
       {canEdit ? (
         <Card>
           <CardHeader>
-            <CardTitle>{hasActive ? 'Change bank account' : 'Add bank account'}</CardTitle>
+            <CardTitle>{hasActive ? 'Change payment details' : 'Add payment details'}</CardTitle>
             <CardDescription>
-              The new account becomes the active one
-              {hasActive ? ' and the current one is kept as history' : ''}.
+              Choose a bank or a mobile money provider. The new details become the active ones
+              {hasActive ? ' and the current ones are kept as history' : ''}.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -295,6 +312,7 @@ async function BankTab({
               employeeId={employee.id}
               banks={banks}
               defaultAccountName={fullName(employee)}
+              defaultWallet={employee.phone ? `0${employee.phone.slice(3)}` : ''}
               today={today}
               hasActive={hasActive}
             />
