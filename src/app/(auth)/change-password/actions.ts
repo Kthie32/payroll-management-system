@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { auth, unstable_update } from '@/auth';
+import { requiredOnboardingStep } from '@/auth.config';
 import { withAudit } from '@/lib/audit';
 import { hashPassword, passwordPolicy, verifyPassword } from '@/lib/auth/password';
 import { currentIp } from '@/lib/auth/request';
@@ -59,5 +60,12 @@ export async function changePasswordAction(
   });
 
   await unstable_update({});
-  redirect('/dashboard');
+  // Go straight to the next onboarding step (e.g. 2FA enrolment) so the URL matches the page.
+  const next = requiredOnboardingStep({
+    mustChangePassword: false,
+    requires2fa: session?.user?.requires2fa,
+    totpEnrolled: Boolean(user.totpEnrolledAt && user.totpSecretEnc),
+    twoFactorVerified: session?.user?.twoFactorVerified,
+  });
+  redirect(next ?? '/dashboard');
 }
