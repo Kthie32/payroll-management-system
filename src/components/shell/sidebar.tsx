@@ -11,6 +11,7 @@ import {
   Users,
   Wallet,
   type LucideIcon,
+  Landmark,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -21,6 +22,7 @@ const ICONS: Record<NavIcon, LucideIcon> = {
   dashboard: LayoutDashboard,
   employees: Users,
   payroll: Wallet,
+  exports: Landmark,
   reports: BarChart3,
   loans: HandCoins,
   settings: Settings,
