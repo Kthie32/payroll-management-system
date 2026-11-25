@@ -1,0 +1,568 @@
+// Payroll Management System — complete schema for all phases.
+// Rules: money = BigInt (UGX), percentages = Int basis points, tables = snake_case.
+// Triggers, generated columns and their unique indexes live in raw-SQL migrations.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("MIGRATE_DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  relationMode      = "foreignKeys"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum RoleCode {
+  SYSTEM_ADMIN
+  HR_OFFICER
+  PAYROLL_OFFICER
+  FINANCE_APPROVER
+  AUDITOR
+}
+
+enum PayFrequency {
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+}
+
+enum WorkerType {
+  PERMANENT
+  CONTRACT
+  CASUAL
+}
+
+enum Residency {
+  RESIDENT
+  NON_RESIDENT
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  SUSPENDED
+  EXITED
+}
+
+enum ComponentKind {
+  EARNING
+  DEDUCTION
+  EMPLOYER
+}
+
+enum CalcType {
+  FIXED
+  PERCENT_OF_BASIC
+  RATE_X_QTY
+}
+
+enum StatutoryRule {
+  PAYE_RES
+  PAYE_NONRES
+  NSSF
+  LST
+}
+
+enum InputSource {
+  MANUAL
+  IMPORT
+}
+
+enum RunStatus {
+  DRAFT
+  COMPUTED
+  SUBMITTED
+  REJECTED
+  APPROVED
+  EXPORTED
+  PAID
+  LOCKED
+}
+
+enum LoanType {
+  LOAN
+  ADVANCE
+  SACCO
+}
+
+enum LoanStatus {
+  ACTIVE
+  SETTLED
+  WRITTEN_OFF
+}
+
+enum ExportFormat {
+  CSV
+  XLSX
+}
+
+enum BankExportStatus {
+  GENERATED
+  SUPERSEDED
+  SENT
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique @db.VarChar(191)
+  name               String    @db.VarChar(120)
+  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  totpSecretEnc      String?   @map("totp_secret_enc") @db.VarChar(255)
+  totpEnrolledAt     DateTime? @map("totp_enrolled_at")
+  isActive           Boolean   @default(true) @map("is_active")
+  failedLogins       Int       @default(0) @map("failed_logins")
+  lockedUntil        DateTime? @map("locked_until")
+  lastLoginAt        DateTime? @map("last_login_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  roles            UserRole[]
+  auditEntries     AuditLog[]
+  computedRuns     PayrollRun[]           @relation("RunComputedBy")
+  approvedRuns     PayrollRun[]           @relation("RunApprovedBy")
+  approvedRules    StatutoryRuleVersion[]
+  generatedExports BankExport[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String     @id @default(cuid())
+  code        RoleCode   @unique
+  name        String     @db.VarChar(80)
+  description String?    @db.VarChar(255)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+// ───────────────────────────── Organisation ─────────────────────────────
+
+model Department {
+  id             String     @id @default(cuid())
+  name           String     @unique @db.VarChar(120)
+  costCentreCode String?    @map("cost_centre_code") @db.VarChar(40)
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  employees      Employee[]
+
+  @@map("departments")
+}
+
+model PayGroup {
+  id        String       @id @default(cuid())
+  name      String       @unique @db.VarChar(120)
+  frequency PayFrequency
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  employees Employee[]
+  periods   PayPeriod[]
+  runs      PayrollRun[]
+
+  @@map("pay_groups")
+}
+
+// ───────────────────────────── Employees ─────────────────────────────
+
+model Employee {
+  id             String         @id @default(cuid())
+  staffNo        String         @unique @map("staff_no") @db.VarChar(40)
+  firstName      String         @map("first_name") @db.VarChar(80)
+  lastName       String         @map("last_name") @db.VarChar(80)
+  otherNames     String?        @map("other_names") @db.VarChar(120)
+  workerType     WorkerType     @map("worker_type")
+  payGroupId     String         @map("pay_group_id")
+  departmentId   String?        @map("department_id")
+  jobTitle       String?        @map("job_title") @db.VarChar(120)
+  grade          String?        @db.VarChar(40)
+  hireDate       DateTime       @map("hire_date") @db.Date
+  exitDate       DateTime?      @map("exit_date") @db.Date
+  residency      Residency      @default(RESIDENT)
+  tin            String?        @db.VarChar(20)
+  nssfNo         String?        @map("nssf_no") @db.VarChar(30)
+  ninEnc         String?        @map("nin_enc") @db.VarChar(255)
+  lstDistrict    String?        @map("lst_district") @db.VarChar(80)
+  payeApplicable Boolean        @default(true) @map("paye_applicable")
+  nssfApplicable Boolean        @default(true) @map("nssf_applicable")
+  lstApplicable  Boolean        @default(true) @map("lst_applicable")
+  status         EmployeeStatus @default(ACTIVE)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  payGroup      PayGroup              @relation(fields: [payGroupId], references: [id], onDelete: Restrict)
+  department    Department?           @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  bankAccounts  EmployeeBankAccount[]
+  components    EmployeeComponent[]
+  inputs        PayrollInput[]
+  runEmployees  PayrollRunEmployee[]
+  loans         Loan[]
+  carryForwards CarryForward[]
+
+  @@index([payGroupId])
+  @@index([departmentId])
+  @@index([status])
+  @@index([lastName, firstName])
+  @@map("employees")
+}
+
+model Bank {
+  id        String                @id @default(cuid())
+  name      String                @unique @db.VarChar(120)
+  code      String                @unique @db.VarChar(20)
+  createdAt DateTime              @default(now()) @map("created_at")
+  updatedAt DateTime              @updatedAt @map("updated_at")
+  accounts  EmployeeBankAccount[]
+  templates ExportTemplate[]
+  exports   BankExport[]
+
+  @@map("banks")
+}
+
+model EmployeeBankAccount {
+  id               String   @id @default(cuid())
+  employeeId       String   @map("employee_id")
+  bankId           String   @map("bank_id")
+  branchCode       String?  @map("branch_code") @db.VarChar(20)
+  accountNoEnc     String   @map("account_no_enc") @db.VarChar(255)
+  accountNoLast4   String   @map("account_no_last4") @db.Char(4)
+  accountName      String   @map("account_name") @db.VarChar(160)
+  effectiveFrom    DateTime @map("effective_from") @db.Date
+  isActive         Boolean  @default(true) @map("is_active")
+  /// Generated column (raw SQL): IF(is_active, employee_id, NULL). Never write to it.
+  activeEmployeeId String?  @unique(map: "uq_one_active_bank_account") @map("active_employee_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  bank     Bank     @relation(fields: [bankId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([bankId])
+  @@map("employee_bank_accounts")
+}
+
+// ───────────────────────────── Pay components ─────────────────────────────
+
+model PayComponent {
+  id        String        @id @default(cuid())
+  code      String        @unique @db.VarChar(40)
+  name      String        @db.VarChar(120)
+  kind      ComponentKind
+  calcType  CalcType      @map("calc_type")
+  taxable   Boolean       @default(true)
+  nssfable  Boolean       @default(true)
+  prorate   Boolean       @default(false)
+  recurring Boolean       @default(true)
+  priority  Int           @default(100)
+  sortOrder Int           @default(100) @map("sort_order")
+  isActive  Boolean       @default(true) @map("is_active")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  employeeComponents EmployeeComponent[]
+  inputs             PayrollInput[]
+
+  @@index([kind, isActive])
+  @@map("pay_components")
+}
+
+model EmployeeComponent {
+  id            String    @id @default(cuid())
+  employeeId    String    @map("employee_id")
+  componentId   String    @map("component_id")
+  amount        BigInt?
+  rateBp        Int?      @map("rate_bp")
+  ratePerUnit   BigInt?   @map("rate_per_unit")
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  employee  Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  component PayComponent @relation(fields: [componentId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, componentId, effectiveFrom])
+  @@index([componentId])
+  @@map("employee_components")
+}
+
+// ───────────────────────────── Statutory rules ─────────────────────────────
+
+model StatutoryRuleVersion {
+  id            String        @id @default(cuid())
+  rule          StatutoryRule
+  params        Json
+  effectiveFrom DateTime      @map("effective_from") @db.Date
+  effectiveTo   DateTime?     @map("effective_to") @db.Date
+  active        Boolean       @default(false)
+  sourceUrl     String?       @map("source_url") @db.VarChar(500)
+  approvedById  String?       @map("approved_by_id")
+  approvedAt    DateTime?     @map("approved_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  approvedBy User? @relation(fields: [approvedById], references: [id], onDelete: Restrict)
+
+  @@unique([rule, effectiveFrom])
+  @@index([rule, active, effectiveFrom])
+  @@index([approvedById])
+  @@map("statutory_rule_versions")
+}
+
+// ───────────────────────────── Periods and inputs ─────────────────────────────
+
+model PayPeriod {
+  id         String   @id @default(cuid())
+  payGroupId String   @map("pay_group_id")
+  startDate  DateTime @map("start_date") @db.Date
+  endDate    DateTime @map("end_date") @db.Date
+  payDate    DateTime @map("pay_date") @db.Date
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  payGroup     PayGroup       @relation(fields: [payGroupId], references: [id], onDelete: Restrict)
+  inputs       PayrollInput[]
+  runs         PayrollRun[]
+  loansStarted Loan[]
+
+  @@unique([payGroupId, startDate])
+  @@index([payDate])
+  @@map("pay_periods")
+}
+
+model PayrollInput {
+  id          String      @id @default(cuid())
+  periodId    String      @map("period_id")
+  employeeId  String      @map("employee_id")
+  componentId String      @map("component_id")
+  quantity    Decimal?    @db.Decimal(10, 2)
+  amount      BigInt?
+  source      InputSource @default(MANUAL)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  period    PayPeriod    @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  employee  Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  component PayComponent @relation(fields: [componentId], references: [id], onDelete: Restrict)
+
+  @@index([periodId, employeeId])
+  @@index([employeeId])
+  @@index([componentId])
+  @@map("payroll_inputs")
+}
+
+// ───────────────────────────── Payroll runs ─────────────────────────────
+
+model PayrollRun {
+  id               String    @id @default(cuid())
+  periodId         String    @map("period_id")
+  payGroupId       String    @map("pay_group_id")
+  status           RunStatus @default(DRAFT)
+  computedById     String?   @map("computed_by_id")
+  computedAt       DateTime? @map("computed_at")
+  approvedById     String?   @map("approved_by_id")
+  approvedAt       DateTime? @map("approved_at")
+  rejectionComment String?   @map("rejection_comment") @db.Text
+  exportedAt       DateTime? @map("exported_at")
+  paidAt           DateTime? @map("paid_at")
+  lockedAt         DateTime? @map("locked_at")
+  ruleVersionIds   Json?     @map("rule_version_ids")
+  totals           Json?
+  /// Generated column (raw SQL): IF(status <> 'REJECTED', period_id, NULL). Never write to it.
+  openPeriodId     String?   @unique(map: "uq_one_open_run_per_period") @map("open_period_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  period               PayPeriod            @relation(fields: [periodId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  payGroup             PayGroup             @relation(fields: [payGroupId], references: [id], onDelete: Restrict)
+  computedBy           User?                @relation("RunComputedBy", fields: [computedById], references: [id], onDelete: Restrict)
+  approvedBy           User?                @relation("RunApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  employees            PayrollRunEmployee[]
+  exports              BankExport[]
+  carryForwardsCreated CarryForward[]       @relation("CarryForwardFrom")
+  carryForwardsSettled CarryForward[]       @relation("CarryForwardSettled")
+
+  @@index([periodId, status])
+  @@index([payGroupId])
+  @@index([computedById])
+  @@index([approvedById])
+  @@map("payroll_runs")
+}
+
+model PayrollRunEmployee {
+  id              String   @id @default(cuid())
+  runId           String   @map("run_id")
+  employeeId      String   @map("employee_id")
+  snapshot        Json
+  gross           BigInt
+  taxable         BigInt
+  nssfBase        BigInt   @map("nssf_base")
+  paye            BigInt
+  nssfEmployee    BigInt   @map("nssf_employee")
+  nssfEmployer    BigInt   @map("nssf_employer")
+  lst             BigInt
+  otherDeductions BigInt   @map("other_deductions")
+  net             BigInt
+  employerCost    BigInt   @map("employer_cost")
+  warnings        Json
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  run      PayrollRun    @relation(fields: [runId], references: [id], onDelete: Restrict)
+  employee Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lines    PayrollLine[]
+
+  @@unique([runId, employeeId])
+  @@index([employeeId])
+  @@map("payroll_run_employees")
+}
+
+model PayrollLine {
+  id            String   @id @default(cuid())
+  runEmployeeId String   @map("run_employee_id")
+  code          String   @db.VarChar(40)
+  kind          String   @db.VarChar(20)
+  quantity      Decimal? @db.Decimal(10, 2)
+  rate          BigInt?
+  amount        BigInt
+  note          String   @default("") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  runEmployee PayrollRunEmployee @relation(fields: [runEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([runEmployeeId])
+  @@map("payroll_lines")
+}
+
+// ───────────────────────────── Loans / carry-forward ─────────────────────────────
+
+model Loan {
+  id            String     @id @default(cuid())
+  employeeId    String     @map("employee_id")
+  type          LoanType
+  principal     BigInt
+  installment   BigInt
+  balance       BigInt
+  startPeriodId String?    @map("start_period_id")
+  status        LoanStatus @default(ACTIVE)
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  employee    Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  startPeriod PayPeriod? @relation(fields: [startPeriodId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, status])
+  @@index([startPeriodId])
+  @@map("loans")
+}
+
+model CarryForward {
+  id             String   @id @default(cuid())
+  employeeId     String   @map("employee_id")
+  componentCode  String   @map("component_code") @db.VarChar(40)
+  amount         BigInt
+  fromRunId      String   @map("from_run_id")
+  settledInRunId String?  @map("settled_in_run_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  employee     Employee    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  fromRun      PayrollRun  @relation("CarryForwardFrom", fields: [fromRunId], references: [id], onDelete: Restrict)
+  settledInRun PayrollRun? @relation("CarryForwardSettled", fields: [settledInRunId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, settledInRunId])
+  @@index([fromRunId])
+  @@index([settledInRunId])
+  @@map("carry_forwards")
+}
+
+// ───────────────────────────── Bank exports ─────────────────────────────
+
+model ExportTemplate {
+  id          String       @id @default(cuid())
+  bankId      String       @map("bank_id")
+  format      ExportFormat
+  mapping     Json
+  headerRules Json?        @map("header_rules")
+  footerRules Json?        @map("footer_rules")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  bank Bank @relation(fields: [bankId], references: [id], onDelete: Restrict)
+
+  @@index([bankId])
+  @@map("export_templates")
+}
+
+model BankExport {
+  id            String           @id @default(cuid())
+  runId         String           @map("run_id")
+  bankId        String           @map("bank_id")
+  version       Int
+  fileSha256    String           @map("file_sha256") @db.Char(64)
+  rowCount      Int              @map("row_count")
+  totalAmount   BigInt           @map("total_amount")
+  generatedById String           @map("generated_by_id")
+  generatedAt   DateTime         @default(now()) @map("generated_at")
+  status        BankExportStatus @default(GENERATED)
+
+  run         PayrollRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  bank        Bank       @relation(fields: [bankId], references: [id], onDelete: Restrict)
+  generatedBy User       @relation(fields: [generatedById], references: [id], onDelete: Restrict)
+
+  @@unique([runId, bankId, version])
+  @@index([bankId])
+  @@index([generatedById])
+  @@map("bank_exports")
+}
+
+// ───────────────────────────── Audit / settings ─────────────────────────────
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  actorId  String?  @map("actor_id")
+  action   String   @db.VarChar(80)
+  entity   String   @db.VarChar(80)
+  entityId String?  @map("entity_id") @db.VarChar(191)
+  before   Json?
+  after    Json?
+  ip       String?  @db.VarChar(64)
+  at       DateTime @default(now()) @db.DateTime(3)
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([entity, entityId])
+  @@index([actorId, at])
+  @@index([at])
+  @@map("audit_log")
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique @db.VarChar(80)
+  value     Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
