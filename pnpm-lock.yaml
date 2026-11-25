@@ -43,7 +43,10 @@ importers:
         version: 15.5.29(@playwright/test@1.65.1)(@types/node@22.20.7)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       next-auth:
         specifier: 5.0.0-beta.25
-        version: 5.0.0-beta.25(next@15.5.29(@playwright/test@1.65.1)(@types/node@22.20.7)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
+        version: 5.0.0-beta.25(next@15.5.29(@playwright/test@1.65.1)(@types/node@22.20.7)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(nodemailer@6.10.1)(react@19.3.1)
+      nodemailer:
+        specifier: ^6.10.1
+        version: 6.10.1
       otplib:
         specifier: ^12.0.1
         version: 12.0.1
@@ -81,6 +84,9 @@ importers:
       '@types/node':
         specifier: ^22.14.0
         version: 22.20.7
+      '@types/nodemailer':
+        specifier: ^6.4.17
+        version: 6.4.24
       '@types/papaparse':
         specifier: ^5.3.15
         version: 5.5.2
@@ -1274,6 +1280,9 @@ packages:
 
   '@types/node@22.20.7':
     resolution: {integrity: sha512-F/Mcc4pD3YwXQCG50hb8BjB5RmrOere6hge7n2XHf0V8tpkZOVEjwYv9Ql7n0MpMn8Bv7+q12P9w6UHsBm0Sfw==}
+
+  '@types/nodemailer@6.4.24':
+    resolution: {integrity: sha512-Ww4u0rT9wQNXh4JiQaIwx3QWdcOFXzOjQA2zc+jtFYNmQiT4mIUqcDin51bDFdkzKubFnQCZNK7FIHlPKQ/q9w==}
 
   '@types/papaparse@5.5.2':
     resolution: {integrity: sha512-gFnFp/JMzLHCwRf7tQHrNnfhN4eYBVYYI897CGX4MY1tzY9l2aLkVyx2IlKZ/SAqDbB3I1AOZW5gTMGGsqWliA==}
@@ -2815,6 +2824,10 @@ packages:
   node-fetch-native@1.6.7:
     resolution: {integrity: sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==}
 
+  nodemailer@6.10.1:
+    resolution: {integrity: sha512-Z+iLaBGVaSjbIzQ4pX6XV41HrooLsQ10ZWPUehGmuantvzWoDVBnmsdUcOIDM1t+yPor5pDhVlDESgOMEGxhHA==}
+    engines: {node: '>=6.0.0'}
+
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
     engines: {node: '>=0.10.0'}
@@ -3690,7 +3703,7 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
 
-  '@auth/core@0.37.2':
+  '@auth/core@0.37.2(nodemailer@6.10.1)':
     dependencies:
       '@panva/hkdf': 1.2.1
       '@types/cookie': 0.6.0
@@ -3699,6 +3712,8 @@ snapshots:
       oauth4webapi: 3.8.9
       preact: 10.11.3
       preact-render-to-string: 5.2.3(preact@10.11.3)
+    optionalDependencies:
+      nodemailer: 6.10.1
 
   '@babel/helper-string-parser@7.29.15': {}
 
@@ -4620,6 +4635,10 @@ snapshots:
   '@types/node@22.20.7':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/nodemailer@6.4.24':
+    dependencies:
+      '@types/node': 22.20.7
 
   '@types/papaparse@5.5.2':
     dependencies:
@@ -6321,11 +6340,13 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next-auth@5.0.0-beta.25(next@15.5.29(@playwright/test@1.65.1)(@types/node@22.20.7)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1):
+  next-auth@5.0.0-beta.25(next@15.5.29(@playwright/test@1.65.1)(@types/node@22.20.7)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(nodemailer@6.10.1)(react@19.3.1):
     dependencies:
-      '@auth/core': 0.37.2
+      '@auth/core': 0.37.2(nodemailer@6.10.1)
       next: 15.5.29(@playwright/test@1.65.1)(@types/node@22.20.7)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       react: 19.3.1
+    optionalDependencies:
+      nodemailer: 6.10.1
 
   next@15.5.29(@playwright/test@1.65.1)(@types/node@22.20.7)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
@@ -6360,6 +6381,8 @@ snapshots:
       semver: 6.3.2
 
   node-fetch-native@1.6.7: {}
+
+  nodemailer@6.10.1: {}
 
   normalize-path@3.0.0: {}
 
