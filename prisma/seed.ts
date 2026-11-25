@@ -123,6 +123,23 @@ const PAY_GROUPS: { name: string; frequency: PayFrequency }[] = [
   { name: 'Casual Workers', frequency: 'WEEKLY' },
 ];
 
+// TODO-confirm: bank codes are placeholders. Replace them with the codes your banks use in
+// payment files (e.g. Bank of Uganda / UBA sort codes) before generating bank exports.
+const BANKS: { name: string; code: string }[] = [
+  { name: 'Stanbic Bank Uganda', code: 'STANBIC' },
+  { name: 'Centenary Bank', code: 'CENTENARY' },
+  { name: 'Absa Bank Uganda', code: 'ABSA' },
+  { name: 'dfcu Bank', code: 'DFCU' },
+  { name: 'Equity Bank Uganda', code: 'EQUITY' },
+  { name: 'Standard Chartered Bank Uganda', code: 'SCB' },
+  { name: 'Bank of Africa Uganda', code: 'BOA' },
+  { name: 'Housing Finance Bank', code: 'HFB' },
+  { name: 'KCB Bank Uganda', code: 'KCB' },
+  { name: 'PostBank Uganda', code: 'POSTBANK' },
+];
+
+const DEPARTMENTS: string[] = ['Administration', 'Finance', 'Operations', 'Sales', 'HR'];
+
 const SETTINGS: { key: string; value: Prisma.InputJsonValue }[] = [
   { key: 'minNetPayBp', value: 0 },
   { key: 'prorationBasis', value: 'CALENDAR_DAYS' },
@@ -267,6 +284,38 @@ async function seedSettings(tx: Tx) {
   }
 }
 
+async function seedBanks(tx: Tx) {
+  for (const b of BANKS) {
+    const exists = await tx.bank.findFirst({
+      where: { OR: [{ name: b.name }, { code: b.code }] },
+      select: { id: true },
+    });
+    if (exists) continue;
+    const bank = await tx.bank.create({ data: b });
+    await withAudit(tx, {
+      actorId: null,
+      action: 'SEED_CREATE',
+      entity: 'Bank',
+      entityId: bank.id,
+      after: b,
+    });
+  }
+}
+
+async function seedDepartments(tx: Tx) {
+  for (const name of DEPARTMENTS) {
+    if (await tx.department.findUnique({ where: { name } })) continue;
+    const dep = await tx.department.create({ data: { name } });
+    await withAudit(tx, {
+      actorId: null,
+      action: 'SEED_CREATE',
+      entity: 'Department',
+      entityId: dep.id,
+      after: { name },
+    });
+  }
+}
+
 async function main() {
   const lstBands = loadLstBands();
   await db.$transaction(
@@ -289,6 +338,8 @@ async function main() {
       await seedPayGroups(tx);
       await seedComponents(tx);
       await seedSettings(tx);
+      await seedBanks(tx);
+      await seedDepartments(tx);
     },
     { timeout: 60_000 },
   );
