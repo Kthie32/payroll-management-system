@@ -1,0 +1,4 @@
+{
+  "_todo": "TODO-confirm: enter the Local Service Tax annual bands (UGX, by monthly income) from the Local Governments (Amendment) Act / district schedule, then set the LST rule active and have a FINANCE_APPROVER approve it. Format: { \"from\": 0, \"to\": 100000, \"annual\": 0 } with \"to\": null for the top band.",
+  "bands": []
+}
