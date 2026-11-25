@@ -4,12 +4,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { db } from '@/lib/db';
 import { toUgx } from '@/lib/money';
 import { formatIsoDate, toIsoDate } from '@/lib/payroll/dates';
-import { INPUT_CSV_COLUMNS } from '@/lib/payroll/csv-inputs';
+import { INPUT_CSV_COLUMNS, INPUT_CSV_OPTIONAL_COLUMNS } from '@/lib/payroll/csv-inputs';
+import { POSTED_STATUSES } from '@/lib/payroll/status';
 import {
+  correctableRuns,
   inputComponents,
   isPeriodLocked,
+  listAdjustments,
   periodEmployees,
 } from '@/lib/payroll/server/periods-inputs';
+import { AdjustmentsSection } from './adjustments-section';
 import { can, requirePermission } from '@/lib/rbac';
 import { ActionForm } from '../../../_components/action-form';
 import { clearImportedAction } from '../../../actions';
@@ -19,13 +23,20 @@ import { InputsGrid } from './inputs-grid';
 export const metadata = { title: 'Payroll inputs · Payroll' };
 export const dynamic = 'force-dynamic';
 
-export default async function InputsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function InputsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ adjust?: string; run?: string }>;
+}) {
   const user = await requirePermission('payroll.view');
   const { id } = await params;
+  const { adjust, run: preRun } = await searchParams;
   const period = await db.payPeriod.findUnique({ where: { id }, include: { payGroup: true } });
   if (!period) notFound();
 
-  const [locked, employees, components, inputs] = await Promise.all([
+  const [locked, employees, components, inputs, adjustments] = await Promise.all([
     isPeriodLocked(period.id),
     periodEmployees(period.id),
     inputComponents(),
@@ -34,13 +45,35 @@ export default async function InputsPage({ params }: { params: Promise<{ id: str
       include: { component: true, employee: true },
       orderBy: [{ employee: { staffNo: 'asc' } }, { component: { code: 'asc' } }],
     }),
+    listAdjustments(period.id),
   ]);
+
+  // Runs that can be corrected here: for a preselected employee, the approved runs they were in;
+  // otherwise approved runs of this pay group paid before this period (validated again on save).
+  const runs =
+    adjust && employees.some((e) => e.id === adjust)
+      ? await correctableRuns(adjust, period.payDate)
+      : (
+          await db.payrollRun.findMany({
+            where: {
+              payGroupId: period.payGroupId,
+              status: { in: [...POSTED_STATUSES] },
+              period: { payDate: { lt: period.payDate } },
+            },
+            include: { period: true, payGroup: true },
+            orderBy: { period: { payDate: 'desc' } },
+            take: 24,
+          })
+        ).map((r) => ({
+          runId: r.id,
+          label: `${r.payGroup.name}: ${toIsoDate(r.period.startDate)} – ${toIsoDate(r.period.endDate)}`,
+        }));
   const editable = !locked && can(user.roles, 'payroll.inputs');
   const canImport = !locked && can(user.roles, 'payroll.prepare');
 
   const manual: Record<string, string> = {};
   for (const i of inputs) {
-    if (i.source !== 'MANUAL') continue;
+    if (i.source !== 'MANUAL' || i.note !== null || i.adjustsRunId !== null) continue;
     const key = `${i.employeeId}:${i.componentId}`;
     const value =
       i.component.calcType === 'RATE_X_QTY'
@@ -109,14 +142,30 @@ export default async function InputsPage({ params }: { params: Promise<{ id: str
         </CardContent>
       </Card>
 
+      <AdjustmentsSection
+        periodId={period.id}
+        editable={editable}
+        employees={employees.map((e) => ({
+          id: e.id,
+          staffNo: e.staffNo,
+          name: [e.firstName, e.lastName].join(' '),
+        }))}
+        runs={runs}
+        adjustments={adjustments}
+        preselect={{ employeeId: adjust, runId: preRun }}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Import from CSV</CardTitle>
           <CardDescription>
             Columns: {INPUT_CSV_COLUMNS.join(', ')}. Use quantity for rate-based components (e.g.
             OVERTIME hours, DAILY_WAGE days; an amount on those rows overrides the rate per unit)
-            and amount for fixed ones (e.g. BONUS, ADVANCE). The whole file is checked first and
-            nothing is saved if any row has an error.
+            and amount for fixed ones (e.g. BONUS, ADVANCE). Optional columns{' '}
+            {INPUT_CSV_OPTIONAL_COLUMNS.join(', ')}: ARREARS and OVERPAYMENT_RECOVERY rows need an
+            amount, a note and adjustsPeriodStart (the start date, YYYY-MM-DD, of the approved run
+            being corrected). The whole file is checked first and nothing is saved if any row has an
+            error.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

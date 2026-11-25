@@ -23,7 +23,12 @@ export async function createRun(periodId: string, actorId: string, ip: string | 
   try {
     return await db.$transaction(async (tx) => {
       const run = await tx.payrollRun.create({
-        data: { periodId: period.id, payGroupId: period.payGroupId, status: 'DRAFT' },
+        data: {
+          periodId: period.id,
+          payGroupId: period.payGroupId,
+          status: 'DRAFT',
+          createdById: actorId,
+        },
       });
       await withAudit(tx, {
         actorId,
@@ -54,32 +59,48 @@ export async function submitRun(runId: string, actorId: string, ip: string | nul
       errorCount: totals.errors.length,
     });
     if (reason) throw new RunActionError(reason);
-    await tx.payrollRun.update({ where: { id: run.id }, data: { status: 'SUBMITTED' } });
+    await tx.payrollRun.update({
+      where: { id: run.id },
+      data: { status: 'SUBMITTED', submittedById: actorId, submittedAt: new Date() },
+    });
     await withAudit(tx, {
       actorId,
       action: 'PAYROLL_RUN_SUBMITTED',
       entity: 'PayrollRun',
       entityId: run.id,
       before: { status: run.status },
-      after: { status: 'SUBMITTED' },
+      after: { status: 'SUBMITTED', submittedById: actorId },
       ip,
     });
   });
 }
 
-export async function rejectRun(runId: string, actorId: string, comment: string, ip: string | null) {
+export async function rejectRun(
+  runId: string,
+  actorId: string,
+  comment: string,
+  ip: string | null,
+) {
   await db.$transaction(async (tx) => {
     const run = await tx.payrollRun.findUnique({ where: { id: runId } });
     if (!run) throw new RunActionError('Run not found.');
     const reason = rejectBlockReason({
       status: run.status as RunStatus,
+      createdById: run.createdById,
       computedById: run.computedById,
+      submittedById: run.submittedById,
       actorId,
     });
     if (reason) throw new RunActionError(reason);
     await tx.payrollRun.update({
       where: { id: run.id },
-      data: { status: 'REJECTED', rejectionComment: comment },
+      // Clear the submitter: after rejection the run is prepared again and resubmitted.
+      data: {
+        status: 'REJECTED',
+        rejectionComment: comment,
+        submittedById: null,
+        submittedAt: null,
+      },
     });
     await withAudit(tx, {
       actorId,
@@ -108,7 +129,9 @@ export async function approveRun(runId: string, actorId: string, ip: string | nu
       if (!run) throw new RunActionError('Run not found.');
       const reason = approveBlockReason({
         status: run.status as RunStatus,
+        createdById: run.createdById,
         computedById: run.computedById,
+        submittedById: run.submittedById,
         actorId,
       });
       if (reason) throw new RunActionError(reason);

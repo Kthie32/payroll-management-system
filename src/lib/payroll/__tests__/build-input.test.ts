@@ -15,7 +15,9 @@ const PAYE: PayeParams = {
 };
 const NSSF = { employeeRateBp: 500, employerRateBp: 1_000, ceiling: null };
 
-const comp = (c: Partial<ComponentDef> & Pick<ComponentDef, 'id' | 'code' | 'kind' | 'calcType'>): ComponentDef => ({
+const comp = (
+  c: Partial<ComponentDef> & Pick<ComponentDef, 'id' | 'code' | 'kind' | 'calcType'>,
+): ComponentDef => ({
   name: c.code,
   taxable: true,
   nssfable: true,
@@ -27,21 +29,79 @@ const comp = (c: Partial<ComponentDef> & Pick<ComponentDef, 'id' | 'code' | 'kin
 });
 
 const COMPONENTS: ComponentDef[] = [
-  comp({ id: 'c-basic', code: 'BASIC', kind: 'EARNING', calcType: 'FIXED', prorate: true, sortOrder: 1 }),
-  comp({ id: 'c-house', code: 'HOUSING', kind: 'EARNING', calcType: 'PERCENT_OF_BASIC', sortOrder: 2 }),
+  comp({
+    id: 'c-basic',
+    code: 'BASIC',
+    kind: 'EARNING',
+    calcType: 'FIXED',
+    prorate: true,
+    sortOrder: 1,
+  }),
+  comp({
+    id: 'c-house',
+    code: 'HOUSING',
+    kind: 'EARNING',
+    calcType: 'PERCENT_OF_BASIC',
+    sortOrder: 2,
+  }),
   comp({ id: 'c-ot', code: 'OVERTIME', kind: 'EARNING', calcType: 'RATE_X_QTY', sortOrder: 3 }),
   comp({ id: 'c-bonus', code: 'BONUS', kind: 'EARNING', calcType: 'FIXED', sortOrder: 4 }),
-  comp({ id: 'c-lunch', code: 'LUNCH', kind: 'EARNING', calcType: 'FIXED', taxable: false, nssfable: false, sortOrder: 5 }),
+  comp({
+    id: 'c-lunch',
+    code: 'LUNCH',
+    kind: 'EARNING',
+    calcType: 'FIXED',
+    taxable: false,
+    nssfable: false,
+    sortOrder: 5,
+  }),
   comp({ id: 'c-old', code: 'OLD', kind: 'EARNING', calcType: 'FIXED', isActive: false }),
-  comp({ id: 'c-loan', code: 'LOAN', kind: 'DEDUCTION', calcType: 'FIXED', taxable: false, nssfable: false, priority: 10 }),
-  comp({ id: 'c-adv', code: 'ADVANCE', kind: 'DEDUCTION', calcType: 'FIXED', taxable: false, nssfable: false, priority: 20 }),
-  comp({ id: 'c-sacco', code: 'SACCO', kind: 'DEDUCTION', calcType: 'FIXED', taxable: false, nssfable: false, priority: 30 }),
-  comp({ id: 'c-med', code: 'MEDICAL', kind: 'EMPLOYER', calcType: 'FIXED', taxable: false, nssfable: false }),
+  comp({
+    id: 'c-loan',
+    code: 'LOAN',
+    kind: 'DEDUCTION',
+    calcType: 'FIXED',
+    taxable: false,
+    nssfable: false,
+    priority: 10,
+  }),
+  comp({
+    id: 'c-adv',
+    code: 'ADVANCE',
+    kind: 'DEDUCTION',
+    calcType: 'FIXED',
+    taxable: false,
+    nssfable: false,
+    priority: 20,
+  }),
+  comp({
+    id: 'c-sacco',
+    code: 'SACCO',
+    kind: 'DEDUCTION',
+    calcType: 'FIXED',
+    taxable: false,
+    nssfable: false,
+    priority: 30,
+  }),
+  comp({
+    id: 'c-med',
+    code: 'MEDICAL',
+    kind: 'EMPLOYER',
+    calcType: 'FIXED',
+    taxable: false,
+    nssfable: false,
+  }),
 ];
 
 function args(over: Partial<BuildInputArgs> = {}): BuildInputArgs {
   return {
-    period: { start: '2026-11-01', end: '2026-11-30', payDate: '2026-11-30', frequency: 'MONTHLY', isLastCycleOfMonth: true },
+    period: {
+      start: '2026-11-01',
+      end: '2026-11-30',
+      payDate: '2026-11-30',
+      frequency: 'MONTHLY',
+      isLastCycleOfMonth: true,
+    },
     employee: {
       id: 'e1',
       residency: 'RESIDENT',
@@ -53,7 +113,14 @@ function args(over: Partial<BuildInputArgs> = {}): BuildInputArgs {
     },
     components: COMPONENTS,
     assignments: [
-      { componentId: 'c-basic', amount: 1_000_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2025-01-01', effectiveTo: null },
+      {
+        componentId: 'c-basic',
+        amount: 1_000_000,
+        rateBp: null,
+        ratePerUnit: null,
+        effectiveFrom: '2025-01-01',
+        effectiveTo: null,
+      },
     ],
     inputs: [],
     loans: [],
@@ -81,7 +148,16 @@ describe('buildEngineInput', () => {
     const { input } = buildEngineInput(
       args({
         employee: { ...args().employee, hireDate: '2026-11-16' },
-        assignments: [{ componentId: 'c-basic', amount: 3_000_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2026-11-16', effectiveTo: null }],
+        assignments: [
+          {
+            componentId: 'c-basic',
+            amount: 3_000_000,
+            rateBp: null,
+            ratePerUnit: null,
+            effectiveFrom: '2026-11-16',
+            effectiveTo: null,
+          },
+        ],
       }),
     );
     expect(calculateEmployee(input).gross).toBe(1_500_000);
@@ -91,10 +167,38 @@ describe('buildEngineInput', () => {
     const { input } = buildEngineInput(
       args({
         assignments: [
-          { componentId: 'c-basic', amount: 900_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2025-01-01', effectiveTo: '2026-11-14' },
-          { componentId: 'c-basic', amount: 1_100_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2026-11-15', effectiveTo: null },
-          { componentId: 'c-bonus', amount: 50_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2026-12-01', effectiveTo: null },
-          { componentId: 'c-lunch', amount: 70_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2026-01-01', effectiveTo: '2026-10-31' },
+          {
+            componentId: 'c-basic',
+            amount: 900_000,
+            rateBp: null,
+            ratePerUnit: null,
+            effectiveFrom: '2025-01-01',
+            effectiveTo: '2026-11-14',
+          },
+          {
+            componentId: 'c-basic',
+            amount: 1_100_000,
+            rateBp: null,
+            ratePerUnit: null,
+            effectiveFrom: '2026-11-15',
+            effectiveTo: null,
+          },
+          {
+            componentId: 'c-bonus',
+            amount: 50_000,
+            rateBp: null,
+            ratePerUnit: null,
+            effectiveFrom: '2026-12-01',
+            effectiveTo: null,
+          },
+          {
+            componentId: 'c-lunch',
+            amount: 70_000,
+            rateBp: null,
+            ratePerUnit: null,
+            effectiveFrom: '2026-01-01',
+            effectiveTo: '2026-10-31',
+          },
         ],
       }),
     );
@@ -106,7 +210,14 @@ describe('buildEngineInput', () => {
       args({
         assignments: [
           ...args().assignments,
-          { componentId: 'c-house', amount: null, rateBp: 2_000, ratePerUnit: null, effectiveFrom: '2025-01-01', effectiveTo: null },
+          {
+            componentId: 'c-house',
+            amount: null,
+            rateBp: 2_000,
+            ratePerUnit: null,
+            effectiveFrom: '2025-01-01',
+            effectiveTo: null,
+          },
         ],
       }),
     );
@@ -120,7 +231,14 @@ describe('buildEngineInput', () => {
       args({
         assignments: [
           ...args().assignments,
-          { componentId: 'c-lunch', amount: 100_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2025-01-01', effectiveTo: null },
+          {
+            componentId: 'c-lunch',
+            amount: 100_000,
+            rateBp: null,
+            ratePerUnit: null,
+            effectiveFrom: '2025-01-01',
+            effectiveTo: null,
+          },
         ],
         inputs: [
           { componentId: 'c-lunch', quantity: null, amount: 30_000 },
@@ -140,7 +258,14 @@ describe('buildEngineInput', () => {
       args({
         assignments: [
           ...args().assignments,
-          { componentId: 'c-ot', amount: null, rateBp: null, ratePerUnit: 10_000, effectiveFrom: '2025-01-01', effectiveTo: null },
+          {
+            componentId: 'c-ot',
+            amount: null,
+            rateBp: null,
+            ratePerUnit: 10_000,
+            effectiveFrom: '2025-01-01',
+            effectiveTo: null,
+          },
         ],
         inputs: [
           { componentId: 'c-ot', quantity: 1.25, amount: null },
@@ -155,24 +280,43 @@ describe('buildEngineInput', () => {
       args({
         assignments: [
           ...args().assignments,
-          { componentId: 'c-ot', amount: null, rateBp: null, ratePerUnit: 10_000, effectiveFrom: '2025-01-01', effectiveTo: null },
+          {
+            componentId: 'c-ot',
+            amount: null,
+            rateBp: null,
+            ratePerUnit: 10_000,
+            effectiveFrom: '2025-01-01',
+            effectiveTo: null,
+          },
         ],
         inputs: [{ componentId: 'c-ot', quantity: 2, amount: 15_000 }],
       }),
     ).input;
-    expect(overridden.components.find((c) => c.code === 'OVERTIME')).toMatchObject({ quantity: 2, ratePerUnit: 15_000 });
+    expect(overridden.components.find((c) => c.code === 'OVERTIME')).toMatchObject({
+      quantity: 2,
+      ratePerUnit: 15_000,
+    });
 
     const noQty = buildEngineInput(
       args({
         assignments: [
           ...args().assignments,
-          { componentId: 'c-ot', amount: null, rateBp: null, ratePerUnit: 10_000, effectiveFrom: '2025-01-01', effectiveTo: null },
+          {
+            componentId: 'c-ot',
+            amount: null,
+            rateBp: null,
+            ratePerUnit: 10_000,
+            effectiveFrom: '2025-01-01',
+            effectiveTo: null,
+          },
         ],
       }),
     ).input;
     expect(noQty.components.some((c) => c.code === 'OVERTIME')).toBe(false);
 
-    const rateOnly = buildEngineInput(args({ inputs: [{ componentId: 'c-ot', quantity: null, amount: 9_000 }] })).input;
+    const rateOnly = buildEngineInput(
+      args({ inputs: [{ componentId: 'c-ot', quantity: null, amount: 9_000 }] }),
+    ).input;
     const r = calculateEmployee(rateOnly);
     expect(r.warnings).toContain('COMPONENT_MISSING_VALUE:OVERTIME');
   });
@@ -245,9 +389,24 @@ describe('buildEngineInput', () => {
     expect(monthly.monthToDate).toEqual({ taxable: 0, payeWithheld: 0, gross: 0 });
     const fortnight = buildEngineInput(
       args({
-        period: { start: '2026-11-16', end: '2026-11-29', payDate: '2026-11-29', frequency: 'FORTNIGHTLY', isLastCycleOfMonth: true },
+        period: {
+          start: '2026-11-16',
+          end: '2026-11-29',
+          payDate: '2026-11-29',
+          frequency: 'FORTNIGHTLY',
+          isLastCycleOfMonth: true,
+        },
         monthToDate: mtd,
-        assignments: [{ componentId: 'c-basic', amount: 250_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2025-01-01', effectiveTo: null }],
+        assignments: [
+          {
+            componentId: 'c-basic',
+            amount: 250_000,
+            rateBp: null,
+            ratePerUnit: null,
+            effectiveFrom: '2025-01-01',
+            effectiveTo: null,
+          },
+        ],
       }),
     ).input;
     expect(fortnight.monthToDate).toEqual(mtd);
@@ -255,10 +414,14 @@ describe('buildEngineInput', () => {
   });
 
   it('selects PAYE by residency and throws when NSSF rule is missing', () => {
-    const nonRes = buildEngineInput(args({ employee: { ...args().employee, residency: 'NON_RESIDENT' } })).input;
+    const nonRes = buildEngineInput(
+      args({ employee: { ...args().employee, residency: 'NON_RESIDENT' } }),
+    ).input;
     expect(nonRes.rules.paye).toBeNull();
     expect(() => calculateEmployee(nonRes)).toThrow(MissingRuleError);
-    expect(() => buildEngineInput(args({ rules: { ...args().rules, nssf: null } }))).toThrow(MissingRuleError);
+    expect(() => buildEngineInput(args({ rules: { ...args().rules, nssf: null } }))).toThrow(
+      MissingRuleError,
+    );
     const noMonths = buildEngineInput(args({ rules: { ...args().rules, lstMonths: null } })).input;
     expect('lstMonths' in noMonths.rules).toBe(false);
   });
@@ -268,7 +431,14 @@ describe('buildEngineInput', () => {
       args({
         assignments: [
           ...args().assignments,
-          { componentId: 'c-med', amount: 80_000, rateBp: null, ratePerUnit: null, effectiveFrom: '2025-01-01', effectiveTo: null },
+          {
+            componentId: 'c-med',
+            amount: 80_000,
+            rateBp: null,
+            ratePerUnit: null,
+            effectiveFrom: '2025-01-01',
+            effectiveTo: null,
+          },
         ],
       }),
     );

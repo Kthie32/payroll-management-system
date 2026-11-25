@@ -9,6 +9,8 @@ import { PeriodGenerationError } from '@/lib/payroll/periods';
 import { computeRun } from '@/lib/payroll/server/compute';
 import { RunActionError } from '@/lib/payroll/server/errors';
 import {
+  addAdjustment,
+  removeAdjustment,
   deleteImportedInputs,
   generatePeriodsForGroup,
   importInputsCsv,
@@ -25,6 +27,8 @@ import {
 } from '@/lib/payroll/server/workflow';
 import type { ParseResult } from '@/lib/payroll/csv-inputs';
 import { assertPermission, ForbiddenError } from '@/lib/rbac';
+import { MessagingConfigError } from '@/lib/messaging/config';
+import { sendPayslips } from '@/lib/payroll/server/delivery';
 
 export interface ActionState {
   error?: string;
@@ -39,6 +43,7 @@ function toState(e: unknown): ActionState {
   if (e instanceof RunActionError || e instanceof PeriodGenerationError)
     return { error: e.message };
   if (e instanceof ForbiddenError) return { error: 'You do not have permission to do that.' };
+  if (e instanceof MessagingConfigError) return { error: e.message };
   throw e;
 }
 
@@ -161,6 +166,49 @@ export async function clearImportedAction(_p: ActionState, fd: FormData): Promis
   }
 }
 
+// ── Adjustments ─────────────────────────────────────────────────────────
+
+export async function addAdjustmentAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  try {
+    const actor = await assertPermission('payroll.inputs');
+    const periodId = id.parse(fd.get('periodId'));
+    const employeeId = id.parse(fd.get('employeeId'));
+    const str = (k: string) => {
+      const v = fd.get(k);
+      return typeof v === 'string' ? v : '';
+    };
+    await addAdjustment(
+      periodId,
+      employeeId,
+      {
+        componentCode: str('componentCode'),
+        amountText: str('amount'),
+        note: str('note'),
+        adjustsRunId: str('adjustsRunId'),
+      },
+      actor.id,
+      await currentIp(),
+    );
+    revalidatePath(`/payroll/periods/${periodId}/inputs`);
+    return { message: 'Adjustment added. Recompute the run to include it.' };
+  } catch (e) {
+    if (e instanceof z.ZodError) return { error: 'Choose an employee.' };
+    return toState(e);
+  }
+}
+
+export async function removeAdjustmentAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  try {
+    const actor = await assertPermission('payroll.inputs');
+    const inputId = id.parse(fd.get('inputId'));
+    const periodId = await removeAdjustment(inputId, actor.id, await currentIp());
+    revalidatePath(`/payroll/periods/${periodId}/inputs`);
+    return { message: 'Adjustment removed.' };
+  } catch (e) {
+    return toState(e);
+  }
+}
+
 // ── Runs ────────────────────────────────────────────────────────────────
 
 export async function createRunAction(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -244,4 +292,35 @@ export async function deleteRunAction(_p: ActionState, fd: FormData): Promise<Ac
   }
   revalidatePath('/payroll');
   redirect('/payroll');
+}
+
+// ── Payslip delivery ─────────────────────────────────────────────────────
+
+export async function sendPayslipsAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  try {
+    const actor = await assertPermission('payslips.generate');
+    const runId = id.parse(fd.get('runId'));
+    const channels = fd
+      .getAll('channel')
+      .filter((c): c is 'EMAIL' | 'SMS' => c === 'EMAIL' || c === 'SMS');
+    const selected = fd.getAll('employeeId').filter((v): v is string => typeof v === 'string');
+    const all = fd.get('scope') === 'all';
+    if (!all && selected.length === 0) return { error: 'Select at least one employee.' };
+    const summary = await sendPayslips(
+      runId,
+      { employeeIds: all ? null : selected, channels },
+      actor.id,
+      await currentIp(),
+    );
+    revalidatePath(`/payroll/runs/${runId}/send`);
+    const parts = [`${summary.sent} message(s) sent`];
+    if (summary.failed) parts.push(`${summary.failed} failed`);
+    if (summary.skipped.length)
+      parts.push(`${summary.skipped.length} skipped (missing contact details)`);
+    return summary.failed
+      ? { error: `${parts.join(', ')}. See the status table for reasons.` }
+      : { message: `${parts.join(', ')}.` };
+  } catch (e) {
+    return toState(e);
+  }
 }

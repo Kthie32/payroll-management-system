@@ -14,6 +14,7 @@ export function ActionButton({
   variant,
   size,
   disabled,
+  children,
 }: {
   action: (prev: ActionState, form: FormData) => Promise<ActionState>;
   label: string;
@@ -22,6 +23,8 @@ export function ActionButton({
   variant?: ButtonProps['variant'];
   size?: ButtonProps['size'];
   disabled?: boolean;
+  /** Extra form fields shown above the button (e.g. a confirmation input). */
+  children?: React.ReactNode;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   return (
@@ -32,6 +35,7 @@ export function ActionButton({
       }}
       className="space-y-2"
     >
+      {children}
       <Button type="submit" variant={variant} size={size} disabled={disabled || pending}>
         {pending ? (pendingLabel ?? 'Working…') : label}
       </Button>

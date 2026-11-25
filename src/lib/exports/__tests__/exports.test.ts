@@ -71,7 +71,12 @@ describe('csv writer', () => {
   });
 
   it('uses CRLF line endings with a trailing CRLF', () => {
-    expect(toCsv([['a', 1], ['b', 2]]).toString()).toBe('a,1\r\nb,2\r\n');
+    expect(
+      toCsv([
+        ['a', 1],
+        ['b', 2],
+      ]).toString(),
+    ).toBe('a,1\r\nb,2\r\n');
     expect(toCsv([]).length).toBe(0);
   });
 });
@@ -238,7 +243,12 @@ describe('xlsx writer', () => {
         ['A', 1000],
         ['Total', 1000],
       ],
-      { sheetName: 'Bad/Name:*?', timestamp: new Date('2026-11-28'), boldRows: [0, 2], moneyColumns: [1] },
+      {
+        sheetName: 'Bad/Name:*?',
+        timestamp: new Date('2026-11-28'),
+        boldRows: [0, 2],
+        moneyColumns: [1],
+      },
     );
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
@@ -267,15 +277,34 @@ describe('payment plan', () => {
     bankId,
     bankName,
     bankCode: bankId.toUpperCase(),
+    bankKind: 'BANK' as const,
     branchCode: null,
     accountName: 'x',
     accountNoEnc: 'enc',
     accountNoLast4: '1234',
   });
   const payees: PayeeInput[] = [
-    { employeeId: '1', staffNo: 'E3', employeeName: 'C', net: 300, account: account('b', 'Bank B') },
-    { employeeId: '2', staffNo: 'E1', employeeName: 'A', net: 100, account: account('a', 'Bank A') },
-    { employeeId: '3', staffNo: 'E2', employeeName: 'B', net: 200, account: account('b', 'Bank B') },
+    {
+      employeeId: '1',
+      staffNo: 'E3',
+      employeeName: 'C',
+      net: 300,
+      account: account('b', 'Bank B'),
+    },
+    {
+      employeeId: '2',
+      staffNo: 'E1',
+      employeeName: 'A',
+      net: 100,
+      account: account('a', 'Bank A'),
+    },
+    {
+      employeeId: '3',
+      staffNo: 'E2',
+      employeeName: 'B',
+      net: 200,
+      account: account('b', 'Bank B'),
+    },
     { employeeId: '4', staffNo: 'E4', employeeName: 'D', net: 400, account: null },
     { employeeId: '5', staffNo: 'E5', employeeName: 'E', net: 0, account: null },
   ];
@@ -314,7 +343,12 @@ describe('template parsing', () => {
     expect(t.mapping.narrative).toBe('SALARY {period}');
     expect(t.headerRules).toEqual(DEFAULT_TEMPLATE.headerRules);
     expect(t.footerRules).toEqual({ rows: [] });
-    const bad = parseTemplate({ format: 'CSV', mapping: { columns: [] }, headerRules: {}, footerRules: {} });
+    const bad = parseTemplate({
+      format: 'CSV',
+      mapping: { columns: [] },
+      headerRules: {},
+      footerRules: {},
+    });
     expect(bad.mapping).toEqual(DEFAULT_TEMPLATE.mapping);
   });
 

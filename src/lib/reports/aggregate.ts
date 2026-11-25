@@ -17,7 +17,10 @@ function sumColumns(
   const totals: Record<string, ReportValue> = { [labelKey]: label };
   for (const c of columns) {
     if (c.type === 'text') continue;
-    totals[c.key] = rows.reduce((s, r) => s + (typeof r[c.key] === 'number' ? (r[c.key] as number) : 0), 0);
+    totals[c.key] = rows.reduce(
+      (s, r) => s + (typeof r[c.key] === 'number' ? (r[c.key] as number) : 0),
+      0,
+    );
   }
   return totals;
 }
@@ -249,10 +252,18 @@ export function departmentCost(rows: readonly ReportRow[]): ReportTable {
     money('otherEmployer', 'Other employer costs'),
     money('employerCost', 'Total employer cost'),
   ];
-  const map = new Map<string, { ids: Set<string>; gross: Ugx; nssfEmployer: Ugx; employerCost: Ugx }>();
+  const map = new Map<
+    string,
+    { ids: Set<string>; gross: Ugx; nssfEmployer: Ugx; employerCost: Ugx }
+  >();
   for (const r of rows) {
     const key = r.department ?? 'Unassigned';
-    const d = map.get(key) ?? { ids: new Set<string>(), gross: 0, nssfEmployer: 0, employerCost: 0 };
+    const d = map.get(key) ?? {
+      ids: new Set<string>(),
+      gross: 0,
+      nssfEmployer: 0,
+      employerCost: 0,
+    };
     d.ids.add(r.employeeId);
     d.gross += r.gross;
     d.nssfEmployer += r.nssfEmployer;
@@ -278,39 +289,162 @@ export interface BankExportRecord {
   runId: string;
   payDate: string;
   bankName: string;
+  /** BANK or MOBILE_MONEY (defaults to BANK). */
+  kind?: 'BANK' | 'MOBILE_MONEY';
   version: number;
   status: 'GENERATED' | 'SUPERSEDED' | 'SENT';
   rowCount: number;
   totalAmount: Ugx;
+  /** A re-issue file re-sends only payments that failed the first time. */
+  reissue?: boolean;
 }
 
-/** Totals per bank, using only the latest non-superseded file per run and bank. */
+const KIND_LABEL = { BANK: 'Bank', MOBILE_MONEY: 'Mobile money' } as const;
+
+/**
+ * Totals per bank or mobile money provider. Normal files: the latest non-superseded version per
+ * run and institution. Re-issue files (failed payments sent again) are added in their own column.
+ */
 export function bankSummary(exports: readonly BankExportRecord[]): ReportTable {
   const columns: ReportColumn[] = [
-    text('bank', 'Bank'),
+    text('bank', 'Bank / provider'),
+    text('type', 'Type'),
     { key: 'files', label: 'Files', type: 'number' },
     { key: 'payees', label: 'Payees', type: 'number' },
-    money('total', 'Total paid'),
+    money('total', 'Total in files'),
+    { key: 'reissuedPayees', label: 'Re-issued payees', type: 'number' },
+    money('reissued', 'Re-issued amount'),
   ];
   const latest = new Map<string, BankExportRecord>();
+  const reissues: BankExportRecord[] = [];
   for (const e of exports) {
     if (e.status === 'SUPERSEDED') continue;
+    if (e.reissue) {
+      reissues.push(e);
+      continue;
+    }
     const k = `${e.runId}|${e.bankName}`;
     const cur = latest.get(k);
     if (!cur || e.version > cur.version) latest.set(k, e);
   }
-  const map = new Map<string, { files: number; payees: number; total: Ugx }>();
+  type Acc = {
+    type: string;
+    files: number;
+    payees: number;
+    total: Ugx;
+    reissuedPayees: number;
+    reissued: Ugx;
+  };
+  const map = new Map<string, Acc>();
+  const acc = (e: BankExportRecord): Acc => {
+    const cur = map.get(e.bankName) ?? {
+      type: KIND_LABEL[e.kind ?? 'BANK'],
+      files: 0,
+      payees: 0,
+      total: 0,
+      reissuedPayees: 0,
+      reissued: 0,
+    };
+    map.set(e.bankName, cur);
+    return cur;
+  };
   for (const e of latest.values()) {
-    const b = map.get(e.bankName) ?? { files: 0, payees: 0, total: 0 };
+    const b = acc(e);
     b.files += 1;
     b.payees += e.rowCount;
     b.total += e.totalAmount;
-    map.set(e.bankName, b);
+  }
+  for (const e of reissues) {
+    const b = acc(e);
+    b.files += 1;
+    b.reissuedPayees += e.rowCount;
+    b.reissued += e.totalAmount;
   }
   const out = [...map.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a, x], [b, y]) => (x.type === y.type ? a.localeCompare(b) : x.type === 'Bank' ? -1 : 1))
     .map(([bank, b]) => ({ bank, ...b }));
-  return { title: 'Bank payment summary', columns, rows: out, totals: sumColumns(out, columns, 'bank') };
+  return {
+    title: 'Payment summary (banks and mobile money)',
+    columns,
+    rows: out,
+    totals: sumColumns(out, columns, 'bank'),
+  };
+}
+
+export interface PaymentOutcomeRecord {
+  runId: string;
+  payDate: string;
+  payGroup: string;
+  /** Bank / provider the payee was (last) paid through. */
+  institution: string;
+  kind: 'BANK' | 'MOBILE_MONEY' | null;
+  net: Ugx;
+  /** Latest result from the bank; null if none uploaded yet. */
+  status: 'PAID' | 'FAILED' | 'PENDING' | null;
+}
+
+/** Paid / failed / pending / no-result counts and amounts per run and institution. */
+export function paymentResultsReport(records: readonly PaymentOutcomeRecord[]): ReportTable {
+  const columns: ReportColumn[] = [
+    text('payDate', 'Pay date'),
+    text('payGroup', 'Pay group'),
+    text('institution', 'Bank / provider'),
+    text('type', 'Type'),
+    { key: 'paidCount', label: 'Paid', type: 'number' },
+    money('paidAmount', 'Paid amount'),
+    { key: 'failedCount', label: 'Failed', type: 'number' },
+    money('failedAmount', 'Failed amount'),
+    { key: 'pendingCount', label: 'Pending', type: 'number' },
+    { key: 'noResultCount', label: 'No result', type: 'number' },
+    money('noResultAmount', 'No-result amount'),
+  ];
+  const map = new Map<string, Record<string, ReportValue> & { _sort: string }>();
+  for (const r of records) {
+    const key = `${r.payDate}|${r.runId}|${r.institution}`;
+    const row =
+      map.get(key) ??
+      ({
+        _sort: key,
+        payDate: r.payDate,
+        payGroup: r.payGroup,
+        institution: r.institution,
+        type: r.kind ? KIND_LABEL[r.kind] : '—',
+        paidCount: 0,
+        paidAmount: 0,
+        failedCount: 0,
+        failedAmount: 0,
+        pendingCount: 0,
+        noResultCount: 0,
+        noResultAmount: 0,
+      } as Record<string, ReportValue> & { _sort: string });
+    const add = (k: string, n: number) => {
+      row[k] = (row[k] as number) + n;
+    };
+    if (r.status === 'PAID') {
+      add('paidCount', 1);
+      add('paidAmount', r.net);
+    } else if (r.status === 'FAILED') {
+      add('failedCount', 1);
+      add('failedAmount', r.net);
+    } else if (r.status === 'PENDING') add('pendingCount', 1);
+    else {
+      add('noResultCount', 1);
+      add('noResultAmount', r.net);
+    }
+    map.set(key, row);
+  }
+  const out = [...map.values()]
+    .sort((a, b) => a._sort.localeCompare(b._sort))
+    .map(({ _sort: _s, ...rest }) => rest);
+  return {
+    title: 'Payment results',
+    columns,
+    rows: out,
+    totals: sumColumns(out, columns, 'payDate'),
+    notes: [
+      'Status is the latest result uploaded from the bank or provider; a successful re-issue replaces an earlier failure.',
+    ],
+  };
 }
 
 export interface LoanRecord {

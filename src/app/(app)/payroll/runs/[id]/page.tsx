@@ -79,7 +79,9 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
     include: {
       period: true,
       payGroup: true,
+      createdBy: { select: { name: true } },
       computedBy: { select: { name: true } },
+      submittedBy: { select: { name: true } },
       approvedBy: { select: { name: true } },
       employees: {
         include: { lines: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } },
@@ -146,9 +148,18 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
   const perms = {
     prepare: can(user.roles, 'payroll.prepare'),
     approve: can(user.roles, 'payroll.approve'),
+    inputs: can(user.roles, 'payroll.inputs'),
+    payslips: can(user.roles, 'payslips.view'),
+    send: can(user.roles, 'payslips.generate'),
   };
-  const ctx = { status, computedById: run.computedById, actorId: user.id };
-  const showPayslips = rows.length > 0;
+  const ctx = {
+    status,
+    createdById: run.createdById,
+    computedById: run.computedById,
+    submittedById: run.submittedById,
+    actorId: user.id,
+  };
+  const showPayslips = rows.length > 0 && perms.payslips;
 
   return (
     <div className="space-y-6">
@@ -167,8 +178,12 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
         </div>
         <p className="text-sm text-muted-foreground">
           Pay date {formatIsoDate(toIsoDate(run.period.payDate))}
+          {run.createdBy ? ` · Created by ${run.createdBy.name}` : ''}
           {run.computedAt
             ? ` · Computed ${dateTime.format(run.computedAt)} by ${run.computedBy?.name ?? 'unknown'}`
+            : ''}
+          {run.submittedAt
+            ? ` · Submitted ${dateTime.format(run.submittedAt)} by ${run.submittedBy?.name ?? 'unknown'}`
             : ''}
           {run.approvedAt
             ? ` · Approved ${dateTime.format(run.approvedAt)} by ${run.approvedBy?.name ?? 'unknown'}`
@@ -201,6 +216,22 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
         rejectBlocked={rejectBlockReason(ctx)}
         periodId={run.periodId}
       />
+
+      {isPosted(status) && (perms.send || perms.payslips) ? (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6 text-sm">
+            <p className="text-muted-foreground">
+              Payslips are final. Send them to employees by email or as an SMS link, and track who
+              opened them.
+            </p>
+            <Button asChild variant={perms.send ? 'default' : 'outline'}>
+              <Link href={`/payroll/runs/${run.id}/send`}>
+                {perms.send ? 'Send payslips' : 'Payslip delivery status'}
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {status === 'DRAFT' ? (
         <Card>
@@ -407,6 +438,21 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
                                     ))}
                                   </tbody>
                                 </table>
+                                {isPosted(status) && perms.inputs ? (
+                                  <p>
+                                    <Link
+                                      className="text-primary hover:underline"
+                                      href={`/payroll/runs/${run.id}/correct?employee=${re.employeeId}`}
+                                    >
+                                      Correct in next run
+                                    </Link>
+                                    <span className="text-muted-foreground">
+                                      {' '}
+                                      — approved runs are never edited; add arrears or a recovery to
+                                      the next period.
+                                    </span>
+                                  </p>
+                                ) : null}
                                 {warnings.length ? (
                                   <ul className="list-disc pl-4 text-muted-foreground">
                                     {warnings.map((w) => (
@@ -414,12 +460,14 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
                                     ))}
                                   </ul>
                                 ) : null}
-                                <Link
-                                  className="text-primary hover:underline"
-                                  href={`/payroll/runs/${run.id}/payslips/${re.employeeId}`}
-                                >
-                                  View payslip
-                                </Link>
+                                {perms.payslips ? (
+                                  <Link
+                                    className="text-primary hover:underline"
+                                    href={`/payroll/runs/${run.id}/payslips/${re.employeeId}`}
+                                  >
+                                    View payslip
+                                  </Link>
+                                ) : null}
                               </div>
                             </details>
                           </TableCell>

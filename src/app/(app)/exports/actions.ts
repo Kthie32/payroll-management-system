@@ -13,6 +13,13 @@ import {
   parseRowsText,
 } from '@/lib/exports/template';
 import { ExportTotalsError } from '@/lib/exports/build';
+import {
+  importPaymentResults,
+  previewPaymentResults,
+  reissueFailedPayments,
+  runPaymentSummary,
+} from '@/lib/exports/payments';
+import type { ResultsParse } from '@/lib/exports/results';
 import { assertPermission } from '@/lib/rbac';
 
 export interface ActionState {
@@ -51,11 +58,14 @@ export async function generateExportAction(
 
 const transitionSchema = z.enum(['EXPORTED', 'PAID', 'LOCKED']);
 
+/** Text Finance must type to mark a run paid while results are missing or payments failed. */
+const PAID_CONFIRM_WORD = 'CONFIRM';
+
 export async function transitionRunAction(
   runId: string,
   to: string,
   _prev: ActionState,
-  _form: FormData,
+  form: FormData,
 ): Promise<ActionState> {
   const target = transitionSchema.safeParse(to);
   if (!target.success || !id.safeParse(runId).success) return { error: 'Invalid request.' };
@@ -63,6 +73,18 @@ export async function transitionRunAction(
     target.data === 'EXPORTED' ? 'exports.generate' : 'payroll.markPaid',
   );
   try {
+    if (target.data === 'PAID') {
+      const sum = await runPaymentSummary(db, runId);
+      const issues = sum.failed.length + sum.pending + sum.noResult;
+      const typed = String(form.get('confirm') ?? '')
+        .trim()
+        .toUpperCase();
+      if (issues > 0 && typed !== PAID_CONFIRM_WORD) {
+        return {
+          error: `${sum.failed.length} failed, ${sum.pending} pending and ${sum.noResult} without a bank result. Type ${PAID_CONFIRM_WORD} to mark the run paid anyway.`,
+        };
+      }
+    }
     await transitionRun(db, runId, target.data, { actorId: actor.id, ip: await currentIp() });
     revalidatePath(`/exports/runs/${runId}`);
     revalidatePath('/exports');
@@ -191,4 +213,79 @@ export async function resetTemplateAction(
   revalidatePath('/exports/templates');
   revalidatePath(`/exports/templates/${bankId}`);
   return { ok: removed ? 'Reset to the default template.' : 'Already using the default template.' };
+}
+
+// ── Payment results (Finance) ────────────────────────────────────────────
+
+export interface ResultsState extends ActionState {
+  preview?: ResultsParse;
+  text?: string;
+}
+
+const resultsSchema = z.object({
+  exportId: id,
+  text: z.string().min(1, 'Choose a file').max(2_000_000),
+});
+
+export async function previewResultsAction(
+  _p: ResultsState,
+  form: FormData,
+): Promise<ResultsState> {
+  await assertPermission('payments.upload');
+  const parsed = resultsSchema.safeParse({
+    exportId: form.get('exportId'),
+    text: form.get('text'),
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid request.' };
+  try {
+    const preview = await previewPaymentResults(db, parsed.data.exportId, parsed.data.text);
+    return { preview, text: parsed.data.text };
+  } catch (e) {
+    return failure(e);
+  }
+}
+
+export async function importResultsAction(_p: ResultsState, form: FormData): Promise<ResultsState> {
+  const actor = await assertPermission('payments.upload');
+  const parsed = resultsSchema.safeParse({
+    exportId: form.get('exportId'),
+    text: form.get('text'),
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid request.' };
+  try {
+    const r = await importPaymentResults(db, parsed.data.exportId, parsed.data.text, {
+      actorId: actor.id,
+      ip: await currentIp(),
+    });
+    const runId = String(form.get('runId') ?? '');
+    if (runId) revalidatePath(`/exports/runs/${runId}`);
+    return {
+      ok: `Saved: ${r.PAID} paid, ${r.FAILED} failed, ${r.PENDING} pending${r.notInFile ? `, ${r.notInFile} payee(s) not in the file` : ''}.`,
+    };
+  } catch (e) {
+    return failure(e);
+  }
+}
+
+export async function reissueAction(
+  runId: string,
+  bankId: string,
+  _prev: ActionState,
+  _form: FormData,
+): Promise<ActionState> {
+  const actor = await assertPermission('exports.generate');
+  if (!id.safeParse(runId).success || !id.safeParse(bankId).success)
+    return { error: 'Invalid request.' };
+  try {
+    const created = await reissueFailedPayments(db, runId, bankId, {
+      actorId: actor.id,
+      ip: await currentIp(),
+    });
+    revalidatePath(`/exports/runs/${runId}`);
+    return {
+      ok: `Re-issue file version ${created.version} generated (${created.rowCount} payee(s)).`,
+    };
+  } catch (e) {
+    return failure(e);
+  }
 }

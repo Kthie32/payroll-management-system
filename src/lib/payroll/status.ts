@@ -1,18 +1,20 @@
 export type RunStatus =
-  | 'DRAFT'
-  | 'COMPUTED'
-  | 'SUBMITTED'
-  | 'REJECTED'
-  | 'APPROVED'
-  | 'EXPORTED'
-  | 'PAID'
-  | 'LOCKED';
+  'DRAFT' | 'COMPUTED' | 'SUBMITTED' | 'REJECTED' | 'APPROVED' | 'EXPORTED' | 'PAID' | 'LOCKED';
 
 /** Statuses at which a run is final: its rows are immutable (DB triggers enforce this). */
-export const POSTED_STATUSES = ['APPROVED', 'EXPORTED', 'PAID', 'LOCKED'] as const satisfies readonly RunStatus[];
+export const POSTED_STATUSES = [
+  'APPROVED',
+  'EXPORTED',
+  'PAID',
+  'LOCKED',
+] as const satisfies readonly RunStatus[];
 
 /** Statuses from which a run can be (re)computed or deleted. */
-export const EDITABLE_STATUSES = ['DRAFT', 'COMPUTED', 'REJECTED'] as const satisfies readonly RunStatus[];
+export const EDITABLE_STATUSES = [
+  'DRAFT',
+  'COMPUTED',
+  'REJECTED',
+] as const satisfies readonly RunStatus[];
 
 export const STATUS_LABELS: Record<RunStatus, string> = {
   DRAFT: 'Draft',
@@ -47,27 +49,41 @@ export function submitBlockReason(run: {
   return null;
 }
 
-/** Reason the actor cannot approve the run, or null. Enforces separation of duties. */
-export function approveBlockReason(run: {
-  status: RunStatus;
+/** The people who prepared a run. None of them may approve or reject it (separation of duties). */
+export interface RunPreparers {
+  createdById: string | null;
   computedById: string | null;
-  actorId: string;
-}): string | null {
+  submittedById: string | null;
+}
+
+/** Which preparation step the actor performed on this run, or null if none. */
+export function preparerRole(run: RunPreparers, actorId: string): string | null {
+  if (run.createdById === actorId) return 'created';
+  if (run.computedById === actorId) return 'computed';
+  if (run.submittedById === actorId) return 'submitted';
+  return null;
+}
+
+/** Reason the actor cannot approve the run, or null. Enforces separation of duties per run. */
+export function approveBlockReason(
+  run: RunPreparers & { status: RunStatus; actorId: string },
+): string | null {
   if (run.status !== 'SUBMITTED') return 'Only a submitted run can be approved.';
-  if (run.computedById === run.actorId) {
-    return 'You computed this run, so you cannot approve it (separation of duties).';
+  const role = preparerRole(run, run.actorId);
+  if (role) {
+    return `You ${role} this run, so you cannot approve it. Another approver must review it (separation of duties).`;
   }
   return null;
 }
 
-export function rejectBlockReason(run: {
-  status: RunStatus;
-  computedById: string | null;
-  actorId: string;
-}): string | null {
+/** Reason the actor cannot reject the run, or null. Same separation-of-duties rule as approval. */
+export function rejectBlockReason(
+  run: RunPreparers & { status: RunStatus; actorId: string },
+): string | null {
   if (run.status !== 'SUBMITTED') return 'Only a submitted run can be rejected.';
-  if (run.computedById === run.actorId) {
-    return 'You computed this run, so you cannot review it (separation of duties).';
+  const role = preparerRole(run, run.actorId);
+  if (role) {
+    return `You ${role} this run, so you cannot reject it. Another approver must review it (separation of duties).`;
   }
   return null;
 }

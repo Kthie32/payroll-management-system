@@ -14,7 +14,7 @@ import { activeLoanDeductions } from '@/lib/loans';
 import { getSettings } from '@/lib/settings/general';
 import { loadRulesForDate } from '@/lib/settings/rules';
 import { buildEngineInput, type ComponentDef } from '../build-input';
-import { monthBounds, toIsoDate } from '../dates';
+import { formatIsoDate, monthBounds, toIsoDate } from '../dates';
 import { isLastCycleOfMonth } from '../periods';
 import { isEditable, POSTED_STATUSES, type RunStatus } from '../status';
 import { sumTotals, type EmployeeAmounts, type RunError } from '../totals';
@@ -36,7 +36,16 @@ export interface RunEmployeeSnapshot {
     nssfNo: string | null;
     hireDate: string;
     exitDate: string | null;
-    bank: { accountId: string; bankId: string; bankName: string; branchCode: string | null; accountName: string; last4: string } | null;
+    bank: {
+      accountId: string;
+      bankId: string;
+      bankName: string;
+      /** BANK or MOBILE_MONEY (absent on snapshots taken before mobile money support). */
+      kind?: 'BANK' | 'MOBILE_MONEY';
+      branchCode: string | null;
+      accountName: string;
+      last4: string;
+    } | null;
   };
   /** CarryForward rows consumed by this calculation (settled on approval). */
   carryForwardIds: string[];
@@ -89,7 +98,11 @@ export async function computeRun(runId: string, actorId: string, ip: string | nu
   ]);
   const lastCycle = isLastCycleOfMonth(
     { id: period.id, start, payDate },
-    siblings.map((p) => ({ id: p.id, start: toIsoDate(p.startDate), payDate: toIsoDate(p.payDate) })),
+    siblings.map((p) => ({
+      id: p.id,
+      start: toIsoDate(p.startDate),
+      payDate: toIsoDate(p.payDate),
+    })),
   );
   const components: ComponentDef[] = componentRows.map((c) => ({
     id: c.id,
@@ -164,15 +177,46 @@ export async function computeRun(runId: string, actorId: string, ip: string | nu
     ]),
   );
 
-  const results: Array<{ employeeId: string; snapshot: RunEmployeeSnapshot; result: EngineResult }> = [];
+  const results: Array<{
+    employeeId: string;
+    snapshot: RunEmployeeSnapshot;
+    result: EngineResult;
+  }> = [];
   const errors: RunError[] = [];
+
+  // Labels for earlier runs that adjustment inputs correct (shown in line notes).
+  const adjustsIds = [
+    ...new Set(inputs.map((i) => i.adjustsRunId).filter((x): x is string => !!x)),
+  ];
+  const adjustsRuns = adjustsIds.length
+    ? await db.payrollRun.findMany({
+        where: { id: { in: adjustsIds } },
+        select: {
+          id: true,
+          payGroup: { select: { name: true } },
+          period: { select: { startDate: true, endDate: true } },
+        },
+      })
+    : [];
+  const adjustsLabel = new Map(
+    adjustsRuns.map((r) => [
+      r.id,
+      `${r.payGroup.name} run ${formatIsoDate(toIsoDate(r.period.startDate))} – ${formatIsoDate(toIsoDate(r.period.endDate))}`,
+    ]),
+  );
 
   for (const e of employees) {
     const name = fullName(e);
     try {
       const loans = await activeLoanDeductions(db, e.id, period.endDate);
       const built = buildEngineInput({
-        period: { start, end, payDate, frequency: payGroup.frequency, isLastCycleOfMonth: lastCycle },
+        period: {
+          start,
+          end,
+          payDate,
+          frequency: payGroup.frequency,
+          isLastCycleOfMonth: lastCycle,
+        },
         employee: {
           id: e.id,
           residency: e.residency,
@@ -197,6 +241,8 @@ export async function computeRun(runId: string, actorId: string, ip: string | nu
             componentId: i.componentId,
             quantity: i.quantity === null ? null : i.quantity.toNumber(),
             amount: i.amount === null ? null : toUgx(i.amount),
+            note: i.note,
+            adjustsLabel: i.adjustsRunId ? (adjustsLabel.get(i.adjustsRunId) ?? null) : null,
           })),
         loans: loans.map((l) => ({ loanId: l.loanId, code: l.code, amount: l.amount })),
         carryForwards: carryForwards
@@ -214,6 +260,10 @@ export async function computeRun(runId: string, actorId: string, ip: string | nu
       });
       const result = calculateEmployee(built.input);
       result.warnings.push(...built.notes);
+      for (const line of result.lines) {
+        const extra = built.lineNotes[line.code];
+        if (extra) line.note = line.note ? `${extra} (${line.note})` : extra;
+      }
       const bank = e.bankAccounts[0];
       if (!bank) result.warnings.push('NO_ACTIVE_BANK_ACCOUNT');
       results.push({
@@ -239,6 +289,7 @@ export async function computeRun(runId: string, actorId: string, ip: string | nu
                   accountId: bank.id,
                   bankId: bank.bankId,
                   bankName: bank.bank.name,
+                  kind: bank.bank.kind,
                   branchCode: bank.branchCode,
                   accountName: bank.accountName,
                   last4: bank.accountNoLast4,

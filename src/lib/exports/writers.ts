@@ -52,10 +52,7 @@ export async function toXlsx(grid: Grid, opts: XlsxOptions): Promise<Buffer> {
   for (const r of opts.boldRows ?? []) ws.getRow(r + 1).font = { bold: true };
   for (const c of opts.moneyColumns ?? []) ws.getColumn(c + 1).numFmt = '#,##0';
   grid[0]?.forEach((_, i) => {
-    const width = Math.min(
-      60,
-      Math.max(8, ...grid.map((row) => String(row[i] ?? '').length + 2)),
-    );
+    const width = Math.min(60, Math.max(8, ...grid.map((row) => String(row[i] ?? '').length + 2)));
     ws.getColumn(i + 1).width = width;
   });
   const raw = await wb.xlsx.writeBuffer();
@@ -78,5 +75,8 @@ export const CONTENT_TYPES = {
 
 /** Safe ASCII file name for Content-Disposition. */
 export function safeFileName(name: string): string {
-  return name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/_+/g, '_').slice(0, 120);
+  return name
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/_+/g, '_')
+    .slice(0, 120);
 }

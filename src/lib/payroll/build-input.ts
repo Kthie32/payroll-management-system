@@ -38,6 +38,10 @@ export interface InputRow {
   componentId: string;
   quantity: number | null;
   amount: Ugx | null;
+  /** Adjustment explanation (e.g. arrears or an overpayment recovery). */
+  note?: string | null;
+  /** Human label of the earlier approved run this input corrects, e.g. "Monthly Staff, Oct 2026". */
+  adjustsLabel?: string | null;
 }
 
 export interface LoanDeductionRow {
@@ -91,6 +95,17 @@ export interface BuiltInput {
   carryForwardIds: string[];
   /** Notes about inputs that were ignored or adjusted (shown as warnings). */
   notes: string[];
+  /**
+   * Explanations to append to the calculated line for a component code, e.g. why an ARREARS or
+   * OVERPAYMENT_RECOVERY adjustment was made and which earlier run it corrects.
+   */
+  lineNotes: Record<string, string>;
+}
+
+/** Text explaining one adjustment input, shown on the run page and payslip. */
+export function adjustmentNote(note: string, adjustsLabel: string | null | undefined): string {
+  const why = note.trim();
+  return adjustsLabel ? `Correction to ${adjustsLabel}: ${why}` : `Adjustment: ${why}`;
 }
 
 /** Assignment overlaps [start, end] (all inclusive). */
@@ -135,7 +150,11 @@ export function buildEngineInput(args: BuildInputArgs): BuiltInput {
   }
 
   // 2. Period inputs merged per component.
-  const merged = new Map<string, { quantity: number | null; amount: Ugx | null; rate: Ugx | null }>();
+  const adjustmentTexts = new Map<string, string[]>();
+  const merged = new Map<
+    string,
+    { quantity: number | null; amount: Ugx | null; rate: Ugx | null }
+  >();
   for (const row of args.inputs) {
     const def = byId.get(row.componentId);
     if (!def) continue;
@@ -146,6 +165,11 @@ export function buildEngineInput(args: BuildInputArgs): BuiltInput {
     if (def.calcType === 'PERCENT_OF_BASIC') {
       notes.push(`INPUT_IGNORED:${def.code} (percentage components cannot take period inputs)`);
       continue;
+    }
+    if (row.note && row.note.trim()) {
+      const list = adjustmentTexts.get(def.code) ?? [];
+      list.push(adjustmentNote(row.note, row.adjustsLabel));
+      adjustmentTexts.set(def.code, list);
     }
     const m = merged.get(def.id) ?? { quantity: null, amount: null, rate: null };
     if (def.calcType === 'FIXED') {
@@ -250,5 +274,8 @@ export function buildEngineInput(args: BuildInputArgs): BuiltInput {
     input,
     carryForwardIds: args.carryForwards.filter((cf) => cf.amount > 0).map((cf) => cf.id),
     notes,
+    lineNotes: Object.fromEntries(
+      [...adjustmentTexts].map(([code, list]) => [code, list.join('; ')]),
+    ),
   };
 }

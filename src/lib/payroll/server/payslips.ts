@@ -79,7 +79,9 @@ export async function loadPayslips(runId: string, employeeId?: string): Promise<
       runId: { not: run.id },
       run: {
         status: { in: [...POSTED_STATUSES] },
-        period: { payDate: { gte: fromIsoDate(financialYearStart(payDate)), lte: run.period.payDate } },
+        period: {
+          payDate: { gte: fromIsoDate(financialYearStart(payDate)), lte: run.period.payDate },
+        },
       },
     },
     _sum: { gross: true, paye: true, nssfEmployee: true, lst: true, net: true },
@@ -90,17 +92,15 @@ export async function loadPayslips(runId: string, employeeId?: string): Promise<
   const views = rows.map((re): PayslipView => {
     const snap = re.snapshot as unknown as RunEmployeeSnapshot;
     const names = snap.componentNames ?? {};
-    const lines = re.lines.map(
-      (l): PayslipLine & { kind: string } => ({
-        kind: l.kind,
-        code: l.code,
-        label: lineLabel(l.code, names),
-        quantity: l.quantity === null ? null : l.quantity.toNumber(),
-        rate: l.rate === null ? null : Number(l.rate),
-        amount: toUgx(l.amount),
-        note: l.note,
-      }),
-    );
+    const lines = re.lines.map((l): PayslipLine & { kind: string } => ({
+      kind: l.kind,
+      code: l.code,
+      label: lineLabel(l.code, names),
+      quantity: l.quantity === null ? null : l.quantity.toNumber(),
+      rate: l.rate === null ? null : Number(l.rate),
+      amount: toUgx(l.amount),
+      note: l.note,
+    }));
     const strip = ({ kind: _k, ...rest }: PayslipLine & { kind: string }): PayslipLine => rest;
     const prior = ytdBy.get(re.employeeId);
     const gross = toUgx(re.gross);
@@ -115,7 +115,11 @@ export async function loadPayslips(runId: string, employeeId?: string): Promise<
       status,
       isDraft: !isPosted(status),
       payGroup: run.payGroup.name,
-      period: { start: toIsoDate(run.period.startDate), end: toIsoDate(run.period.endDate), payDate },
+      period: {
+        start: toIsoDate(run.period.startDate),
+        end: toIsoDate(run.period.endDate),
+        payDate,
+      },
       employeeId: re.employeeId,
       employee: snap.employee,
       earnings: lines.filter((l) => l.kind === 'EARNING').map(strip),

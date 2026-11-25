@@ -68,10 +68,16 @@ export type ExportMapping = z.infer<typeof mappingSchema>;
  */
 export const headerRulesSchema = z.object({
   includeColumnHeaders: z.boolean().default(true),
-  rows: z.array(z.array(z.string().max(120)).max(30)).max(10).default([]),
+  rows: z
+    .array(z.array(z.string().max(120)).max(30))
+    .max(10)
+    .default([]),
 });
 export const footerRulesSchema = z.object({
-  rows: z.array(z.array(z.string().max(120)).max(30)).max(10).default([]),
+  rows: z
+    .array(z.array(z.string().max(120)).max(30))
+    .max(10)
+    .default([]),
 });
 export type HeaderRules = z.infer<typeof headerRulesSchema>;
 export type FooterRules = z.infer<typeof footerRulesSchema>;
@@ -115,6 +121,68 @@ export const DEFAULT_TEMPLATE: ExportTemplateSpec = {
   headerRules: { includeColumnHeaders: true, rows: [] },
   footerRules: { rows: [['TOTAL', '{count}', '{total}']] },
 };
+
+/**
+ * MTN MoMo bulk payment file. TODO-confirm: column names and order against MTN Uganda's current
+ * bulk-payment (MoMo for Business) upload template before go-live.
+ */
+export const MTN_MOMO_TEMPLATE: ExportTemplateSpec = {
+  format: 'CSV',
+  mapping: {
+    columns: [
+      { header: 'MSISDN', field: 'accountNo', format: 'AS_IS' },
+      { header: 'Amount', field: 'amount', format: 'INTEGER' },
+      { header: 'Name', field: 'accountName', format: 'AS_IS' },
+      { header: 'Reference', field: 'narrative', format: 'UPPER' },
+    ],
+    narrative: 'SALARY {period}',
+  },
+  headerRules: { includeColumnHeaders: true, rows: [] },
+  footerRules: { rows: [] },
+};
+
+/**
+ * Airtel Money bulk payment file. TODO-confirm: column names and order against Airtel Uganda's
+ * current bulk disbursement upload template before go-live.
+ */
+export const AIRTEL_MONEY_TEMPLATE: ExportTemplateSpec = {
+  format: 'CSV',
+  mapping: {
+    columns: [
+      { header: 'Phone Number', field: 'accountNo', format: 'AS_IS' },
+      { header: 'Amount', field: 'amount', format: 'INTEGER' },
+      { header: 'Name', field: 'accountName', format: 'AS_IS' },
+      { header: 'Reference', field: 'narrative', format: 'UPPER' },
+    ],
+    narrative: 'SALARY {period}',
+  },
+  headerRules: { includeColumnHeaders: true, rows: [] },
+  footerRules: { rows: [] },
+};
+
+/** Generic mobile money file for any other provider. */
+export const MOBILE_MONEY_TEMPLATE: ExportTemplateSpec = {
+  ...MTN_MOMO_TEMPLATE,
+  mapping: {
+    ...MTN_MOMO_TEMPLATE.mapping,
+    columns: [
+      { header: 'Wallet Number', field: 'accountNo', format: 'AS_IS' },
+      ...MTN_MOMO_TEMPLATE.mapping.columns.slice(1),
+    ],
+  },
+};
+
+/** The built-in template for an institution that has no saved template. */
+export function defaultTemplateFor(bank: {
+  code: string;
+  kind: 'BANK' | 'MOBILE_MONEY';
+}): ExportTemplateSpec {
+  if (bank.kind !== 'MOBILE_MONEY') return DEFAULT_TEMPLATE;
+  const code = bank.code.toUpperCase();
+  if (code.startsWith('MTN')) return MTN_MOMO_TEMPLATE;
+  if (code.startsWith('AIRTEL')) return AIRTEL_MONEY_TEMPLATE;
+  return MOBILE_MONEY_TEMPLATE;
+}
 
 /** Parse stored JSON into a template spec, falling back to defaults for any invalid part. */
 export function parseTemplate(row: {

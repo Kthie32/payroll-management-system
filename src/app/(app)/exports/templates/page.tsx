@@ -23,7 +23,7 @@ export default async function TemplatesPage() {
   if (!canEdit && !can(user.roles, 'exports.view')) redirect('/dashboard?denied=1');
 
   const banks = await db.bank.findMany({
-    orderBy: { name: 'asc' },
+    orderBy: [{ kind: 'asc' }, { name: 'asc' }],
     include: {
       templates: { orderBy: { updatedAt: 'desc' }, take: 1 },
       _count: { select: { accounts: { where: { isActive: true } } } },
@@ -38,15 +38,16 @@ export default async function TemplatesPage() {
             ← Bank exports
           </Link>
         ) : null}
-        <h1 className="text-2xl font-semibold">Bank file templates</h1>
+        <h1 className="text-2xl font-semibold">Payment file templates</h1>
         <p className="text-sm text-muted-foreground">
-          Each bank can have its own file layout. Banks without one use the generic CSV template.
+          Each bank and mobile money provider can have its own file layout. Without one, banks use
+          the generic CSV template and MTN MoMo / Airtel Money use their bulk-payment layouts.
           {canEdit ? '' : ' Only a system administrator can change templates.'}
         </p>
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Banks</CardTitle>
+          <CardTitle>Banks and mobile money providers</CardTitle>
           <CardDescription>
             Banks are managed in Settings. Active accounts shows how many employees are paid through
             each bank.
@@ -73,13 +74,20 @@ export default async function TemplatesPage() {
                   const t = b.templates[0];
                   return (
                     <TableRow key={b.id}>
-                      <TableCell className="font-medium">{b.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {b.name}{' '}
+                        {b.kind === 'MOBILE_MONEY' ? (
+                          <Badge variant="outline">Mobile money</Badge>
+                        ) : null}
+                      </TableCell>
                       <TableCell>{b.code}</TableCell>
                       <TableCell>
                         {t ? (
                           <Badge>{t.format} · custom</Badge>
                         ) : (
-                          <Badge variant="secondary">CSV · default</Badge>
+                          <Badge variant="secondary">
+                            CSV · {b.kind === 'MOBILE_MONEY' ? 'provider default' : 'default'}
+                          </Badge>
                         )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{b._count.accounts}</TableCell>

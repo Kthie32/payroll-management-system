@@ -17,6 +17,16 @@ export interface AppToken {
  */
 
 export const PUBLIC_PATHS = ['/login'];
+
+/**
+ * Secure payslip links sent to employees by email or SMS. Reachable without signing in; the page
+ * itself checks the link token and the employee's identity before showing anything.
+ */
+export const PUBLIC_PAYSLIP_PREFIXES = ['/p/', '/api/p/'];
+
+export function isPublicPayslipPath(pathname: string): boolean {
+  return PUBLIC_PAYSLIP_PREFIXES.some((p) => pathname.startsWith(p) && pathname.length > p.length);
+}
 const ONBOARDING = { password: '/change-password', enrol: '/2fa/enrol', verify: '/2fa/verify' };
 
 /** Where a signed-in user must be sent before they can use the app, or null if they are done. */
@@ -54,6 +64,7 @@ export const authConfig = {
       const isPublic = PUBLIC_PATHS.includes(pathname);
 
       if (pathname === '/logout') return true;
+      if (isPublicPayslipPath(pathname)) return true;
       if (!user?.id) return isPublic; // false → redirect to /login with callbackUrl
 
       const step = requiredOnboardingStep(user);

@@ -84,19 +84,40 @@ describe('generatePeriods', () => {
   });
 
   it('FORTNIGHTLY: honours an explicit anchor before or after the range', () => {
-    const early = generatePeriods({ frequency: 'FORTNIGHTLY', from: '2026-11', to: '2026-11', anchor: '2026-01-05' });
-    const late = generatePeriods({ frequency: 'FORTNIGHTLY', from: '2026-11', to: '2026-11', anchor: '2027-03-01' });
+    const early = generatePeriods({
+      frequency: 'FORTNIGHTLY',
+      from: '2026-11',
+      to: '2026-11',
+      anchor: '2026-01-05',
+    });
+    const late = generatePeriods({
+      frequency: 'FORTNIGHTLY',
+      from: '2026-11',
+      to: '2026-11',
+      anchor: '2027-03-01',
+    });
     expect(early).toEqual(late);
     for (const x of early) expect(x.end >= '2026-11-01' && x.end <= '2026-11-30').toBe(true);
     expect(early.every((x, i) => i === 0 || x.start === addDays(early[i - 1]!.end, 1))).toBe(true);
   });
 
   it('rejects bad ranges and anchors', () => {
-    expect(() => generatePeriods({ frequency: 'MONTHLY', from: '2026-12', to: '2026-11' })).toThrow(PeriodGenerationError);
-    expect(() => generatePeriods({ frequency: 'MONTHLY', from: '2026-13', to: '2026-12' })).toThrow(PeriodGenerationError);
-    expect(() => generatePeriods({ frequency: 'MONTHLY', from: '2026-01', to: '2028-12' })).toThrow(/At most/);
+    expect(() => generatePeriods({ frequency: 'MONTHLY', from: '2026-12', to: '2026-11' })).toThrow(
+      PeriodGenerationError,
+    );
+    expect(() => generatePeriods({ frequency: 'MONTHLY', from: '2026-13', to: '2026-12' })).toThrow(
+      PeriodGenerationError,
+    );
+    expect(() => generatePeriods({ frequency: 'MONTHLY', from: '2026-01', to: '2028-12' })).toThrow(
+      /At most/,
+    );
     expect(() =>
-      generatePeriods({ frequency: 'FORTNIGHTLY', from: '2026-11', to: '2026-11', anchor: '2026-02-30' }),
+      generatePeriods({
+        frequency: 'FORTNIGHTLY',
+        from: '2026-11',
+        to: '2026-11',
+        anchor: '2026-02-30',
+      }),
     ).toThrow(/anchor/);
   });
 });

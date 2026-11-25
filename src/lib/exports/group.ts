@@ -1,5 +1,8 @@
 import type { Ugx } from '@/lib/money';
 
+/** A bank, or a mobile money provider (MTN MoMo, Airtel Money) where the account is a wallet number. */
+export type InstitutionKind = 'BANK' | 'MOBILE_MONEY';
+
 /** A run employee with their active bank account (if any), before decryption. */
 export interface PayeeInput {
   employeeId: string;
@@ -10,6 +13,7 @@ export interface PayeeInput {
     bankId: string;
     bankName: string;
     bankCode: string;
+    bankKind: InstitutionKind;
     branchCode: string | null;
     accountName: string;
     accountNoEnc: string;
@@ -21,6 +25,7 @@ export interface BankGroup {
   bankId: string;
   bankName: string;
   bankCode: string;
+  kind: InstitutionKind;
   payees: PayeeInput[];
   total: Ugx;
 }
@@ -35,7 +40,10 @@ export interface PaymentPlan {
   runNetTotal: Ugx;
 }
 
-/** Group payees by the bank of their active account. Groups and payees are sorted for stable files. */
+/**
+ * Group payees by the bank or mobile money provider of their active account. Groups and payees are
+ * sorted for stable files.
+ */
 export function planPayments(payees: readonly PayeeInput[]): PaymentPlan {
   const groups = new Map<string, BankGroup>();
   const missingAccounts: PayeeInput[] = [];
@@ -58,6 +66,7 @@ export function planPayments(payees: readonly PayeeInput[]): PaymentPlan {
         bankId: p.account.bankId,
         bankName: p.account.bankName,
         bankCode: p.account.bankCode,
+        kind: p.account.bankKind,
         payees: [],
         total: 0,
       };
@@ -68,7 +77,10 @@ export function planPayments(payees: readonly PayeeInput[]): PaymentPlan {
   }
 
   const byStaff = (a: PayeeInput, b: PayeeInput) => a.staffNo.localeCompare(b.staffNo);
-  const sorted = [...groups.values()].sort((a, b) => a.bankName.localeCompare(b.bankName));
+  // Banks first, then mobile money providers; alphabetical within each.
+  const sorted = [...groups.values()].sort((a, b) =>
+    a.kind === b.kind ? a.bankName.localeCompare(b.bankName) : a.kind === 'BANK' ? -1 : 1,
+  );
   for (const g of sorted) g.payees.sort(byStaff);
   missingAccounts.sort(byStaff);
   zeroNet.sort(byStaff);

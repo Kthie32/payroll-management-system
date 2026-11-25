@@ -120,13 +120,25 @@ export function computeVariance(
   for (const cur of current) {
     const prev = prevBy.get(cur.employeeId);
     if (!prev) {
-      flagged.push({ employeeId: cur.employeeId, previousNet: null, net: cur.net, reason: 'NEW', changeBp: null });
+      flagged.push({
+        employeeId: cur.employeeId,
+        previousNet: null,
+        net: cur.net,
+        reason: 'NEW',
+        changeBp: null,
+      });
       continue;
     }
     const diff = cur.net - prev.net;
     if (prev.net === 0) {
       if (diff !== 0) {
-        flagged.push({ employeeId: cur.employeeId, previousNet: 0, net: cur.net, reason: 'CHANGE', changeBp: null });
+        flagged.push({
+          employeeId: cur.employeeId,
+          previousNet: 0,
+          net: cur.net,
+          reason: 'CHANGE',
+          changeBp: null,
+        });
       }
       continue;
     }
@@ -142,7 +154,13 @@ export function computeVariance(
   }
   for (const prev of previous) {
     if (!curBy.has(prev.employeeId)) {
-      flagged.push({ employeeId: prev.employeeId, previousNet: prev.net, net: null, reason: 'LEFT', changeBp: null });
+      flagged.push({
+        employeeId: prev.employeeId,
+        previousNet: prev.net,
+        net: null,
+        reason: 'LEFT',
+        changeBp: null,
+      });
     }
   }
 
@@ -151,7 +169,11 @@ export function computeVariance(
   const pn = sum(previous, 'net');
   const cn = sum(current, 'net');
   return {
-    headcount: { previous: previous.length, current: current.length, delta: current.length - previous.length },
+    headcount: {
+      previous: previous.length,
+      current: current.length,
+      delta: current.length - previous.length,
+    },
     gross: { previous: pg, current: cg, delta: cg - pg },
     net: { previous: pn, current: cn, delta: cn - pn },
     flagged,

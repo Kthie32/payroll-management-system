@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient, RunStatus } from '@prisma/client';
 import { toUgx } from '@/lib/money';
 import {
   bankSummary,
+  paymentResultsReport,
   departmentCost,
   loanBalances,
   lstSchedule,
@@ -148,14 +149,33 @@ export async function buildReport(
   if (key === 'banks') {
     const exports = await client.bankExport.findMany({
       where: { run: runWhere(s, today) },
-      include: { bank: { select: { name: true } }, run: { select: { period: { select: { payDate: true } } } } },
+      include: {
+        bank: { select: { name: true, kind: true } },
+        run: { select: { period: { select: { payDate: true } } } },
+      },
     });
     const runIds = new Set(exports.map((e) => e.runId));
+    // Re-issue files are flagged in their generation audit entry.
+    const gen = await client.auditLog.findMany({
+      where: {
+        entity: 'BankExport',
+        action: 'BANK_EXPORT_GENERATED',
+        entityId: { in: exports.map((e) => e.id) },
+      },
+      select: { entityId: true, after: true },
+    });
+    const reissued = new Set(
+      gen
+        .filter((g) => (g.after as { reissue?: boolean } | null)?.reissue === true)
+        .map((g) => g.entityId),
+    );
     const t = bankSummary(
       exports.map((e) => ({
         runId: e.runId,
         payDate: iso(e.run.period.payDate),
         bankName: e.bank.name,
+        kind: e.bank.kind,
+        reissue: reissued.has(e.id),
         version: e.version,
         status: e.status,
         rowCount: e.rowCount,
@@ -163,6 +183,60 @@ export async function buildReport(
       })),
     );
     return { ...t, subtitle, runCount: runIds.size, draftRunCount: 0 };
+  }
+
+  if (key === 'payments') {
+    const runs = await client.payrollRun.findMany({
+      where: { ...runWhere(s, today), status: { in: [...FINAL_STATUSES] } },
+      select: {
+        id: true,
+        payGroup: { select: { name: true } },
+        period: { select: { payDate: true } },
+        employees: {
+          select: {
+            id: true,
+            net: true,
+            employee: {
+              select: {
+                bankAccounts: {
+                  where: { isActive: true },
+                  take: 1,
+                  select: { bank: { select: { name: true, kind: true } } },
+                },
+              },
+            },
+            paymentResults: {
+              select: {
+                status: true,
+                uploadedAt: true,
+                bankExport: { select: { bank: { select: { name: true, kind: true } } } },
+              },
+            },
+          },
+        },
+      },
+    });
+    const records = runs.flatMap((run) =>
+      run.employees
+        .filter((re) => toUgx(re.net) > 0)
+        .map((re) => {
+          const last = [...re.paymentResults].sort(
+            (a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime(),
+          )[0];
+          const bank = last?.bankExport.bank ?? re.employee.bankAccounts[0]?.bank ?? null;
+          return {
+            runId: run.id,
+            payDate: iso(run.period.payDate),
+            payGroup: run.payGroup.name,
+            institution: bank?.name ?? 'No active account',
+            kind: bank?.kind ?? null,
+            net: toUgx(re.net),
+            status: last?.status ?? null,
+          };
+        }),
+    );
+    const t = paymentResultsReport(records);
+    return { ...t, subtitle, runCount: runs.length, draftRunCount: 0 };
   }
 
   const { rows, runCount, draftRunCount } = await loadReportRows(client, s, today);

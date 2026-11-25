@@ -116,7 +116,10 @@ export function buildBankGrid(
           case 'narrative':
             return formatText(narrative, col.format);
           case 'payDate':
-            return formatDate(ctx.payDate, col.format.startsWith('DATE_') ? col.format : 'DATE_ISO');
+            return formatDate(
+              ctx.payDate,
+              col.format.startsWith('DATE_') ? col.format : 'DATE_ISO',
+            );
         }
       }),
     );
@@ -136,11 +139,7 @@ export async function buildBankFile(
   ctx: BankFileContext,
   expectedTotal: Ugx,
 ): Promise<BankFile> {
-  const { grid, dataRowCount, totalAmount, headerRowIndexes } = buildBankGrid(
-    template,
-    rows,
-    ctx,
-  );
+  const { grid, dataRowCount, totalAmount, headerRowIndexes } = buildBankGrid(template, rows, ctx);
   if (totalAmount !== expectedTotal) throw new ExportTotalsError(expectedTotal, totalAmount);
 
   const bytes =

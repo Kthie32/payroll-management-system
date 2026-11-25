@@ -1,6 +1,13 @@
 import Papa from 'papaparse';
+import { isAdjustmentCode, NOTE_MAX, NOTE_MIN } from './adjustments';
 
 export const INPUT_CSV_COLUMNS = ['staffNo', 'componentCode', 'quantity', 'amount'] as const;
+/** Optional columns, required only for ARREARS / OVERPAYMENT_RECOVERY rows. */
+export const INPUT_CSV_OPTIONAL_COLUMNS = ['note', 'adjustsPeriodStart'] as const;
+
+export interface CsvAdjustedRun {
+  runId: string;
+}
 export const MAX_IMPORT_ROWS = 5_000;
 
 export interface CsvEmployee {
@@ -25,6 +32,9 @@ export interface ParsedInputRow {
   employeeId: string | null;
   employeeName: string | null;
   componentId: string | null;
+  note: string | null;
+  /** For adjustment rows: the approved run being corrected. */
+  adjustsRunId: string | null;
   errors: string[];
 }
 
@@ -44,7 +54,9 @@ function clean(v: unknown): string {
 }
 
 /**
- * Parses and validates a payroll-inputs CSV (columns: staffNo, componentCode, quantity, amount).
+ * Parses and validates a payroll-inputs CSV (columns: staffNo, componentCode, quantity, amount;
+ * optional note, adjustsPeriodStart). ARREARS / OVERPAYMENT_RECOVERY rows are adjustments: they need
+ * an amount, a note and the start date of the approved run being corrected.
  * Pure: lookups are passed in. Amounts are whole shillings (commas allowed); quantities allow two
  * decimals. RATE_X_QTY rows need a quantity (amount, if given, overrides the rate per unit);
  * FIXED rows need an amount; PERCENT_OF_BASIC components cannot be imported.
@@ -54,6 +66,8 @@ export function parseInputsCsv(
   lookups: {
     employeesByStaffNo: Map<string, CsvEmployee>;
     componentsByCode: Map<string, CsvComponent>;
+    /** Key `<employeeId>|<period start YYYY-MM-DD>` → approved runs that included the employee. */
+    adjustedRuns?: Map<string, CsvAdjustedRun[]>;
   },
 ): ParseResult {
   const parsed = Papa.parse<Record<string, string>>(text.replace(/^﻿/, ''), {
@@ -102,11 +116,47 @@ export function parseInputsCsv(
       } else amount = Number(amountText);
     }
 
-    if (component?.calcType === 'RATE_X_QTY' && quantity === null && !errors.some((e) => e.startsWith('Invalid quantity'))) {
+    if (
+      component?.calcType === 'RATE_X_QTY' &&
+      quantity === null &&
+      !errors.some((e) => e.startsWith('Invalid quantity'))
+    ) {
       errors.push(`${componentCode} needs a quantity`);
     }
-    if (component?.calcType === 'FIXED' && amount === null && !errors.some((e) => e.startsWith('Invalid amount'))) {
+    if (
+      component?.calcType === 'FIXED' &&
+      amount === null &&
+      !errors.some((e) => e.startsWith('Invalid amount'))
+    ) {
       errors.push(`${componentCode} needs an amount`);
+    }
+
+    const note = clean(raw.note).replace(/\s+/g, ' ') || null;
+    const adjustsText = clean(raw.adjustsPeriodStart);
+    let adjustsRunId: string | null = null;
+    if (note && note.length > NOTE_MAX) errors.push(`note is longer than ${NOTE_MAX} characters`);
+    if (component && isAdjustmentCode(component.code)) {
+      if (!note || note.length < NOTE_MIN)
+        errors.push(`${componentCode} needs a note explaining the correction`);
+      if (amount === 0) errors.push(`${componentCode} amount must be greater than zero`);
+      if (!adjustsText) {
+        errors.push(
+          `${componentCode} needs adjustsPeriodStart (start date of the approved run being corrected)`,
+        );
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(adjustsText)) {
+        errors.push(`Invalid adjustsPeriodStart "${adjustsText}" (use YYYY-MM-DD)`);
+      } else if (employee) {
+        const runs = lookups.adjustedRuns?.get(`${employee.id}|${adjustsText}`) ?? [];
+        if (runs.length === 0)
+          errors.push(`No earlier approved run starting ${adjustsText} included ${staffNo}`);
+        else if (runs.length > 1)
+          errors.push(
+            `More than one approved run starts ${adjustsText}; enter this adjustment on screen`,
+          );
+        else adjustsRunId = runs[0]!.runId;
+      }
+    } else if (adjustsText) {
+      errors.push('adjustsPeriodStart is only used with ARREARS or OVERPAYMENT_RECOVERY');
     }
 
     return {
@@ -118,6 +168,8 @@ export function parseInputsCsv(
       employeeId: employee?.id ?? null,
       employeeName: employee?.name ?? null,
       componentId: component?.id ?? null,
+      note,
+      adjustsRunId,
       errors,
     };
   });

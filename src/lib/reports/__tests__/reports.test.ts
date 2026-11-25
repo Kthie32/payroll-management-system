@@ -7,6 +7,7 @@ import {
   lstSchedule,
   nssfSchedule,
   payeReturn,
+  paymentResultsReport,
   payrollRegister,
   perEmployee,
   reportToGrid,
@@ -66,18 +67,35 @@ const b = row({
 describe('payroll register', () => {
   it('lists earning codes with BASIC first, then alphabetical', () => {
     expect(earningCodes([a, b])).toEqual(['BASIC', 'HOUSING']);
-    expect(earningCodes([row({ employeeId: 'x', staffNo: 'X', lines: [
-      { code: 'ZED', kind: 'EARNING', amount: 1 },
-      { code: 'ALPHA', kind: 'EARNING', amount: 1 },
-    ] })])).toEqual(['ALPHA', 'ZED']);
+    expect(
+      earningCodes([
+        row({
+          employeeId: 'x',
+          staffNo: 'X',
+          lines: [
+            { code: 'ZED', kind: 'EARNING', amount: 1 },
+            { code: 'ALPHA', kind: 'EARNING', amount: 1 },
+          ],
+        }),
+      ]),
+    ).toEqual(['ALPHA', 'ZED']);
   });
 
   it('builds one row per payslip, sums repeated earning codes, and totals money columns', () => {
     const t = payrollRegister([a, b]);
     expect(t.rows.map((r) => r.staffNo)).toEqual(['E001', 'E002']);
-    expect(t.rows[0]).toMatchObject({ e_BASIC: 1_000_000, e_HOUSING: 200_000, department: 'Unassigned' });
+    expect(t.rows[0]).toMatchObject({
+      e_BASIC: 1_000_000,
+      e_HOUSING: 200_000,
+      department: 'Unassigned',
+    });
     expect(t.rows[1]).toMatchObject({ e_HOUSING: 0 });
-    expect(t.totals).toMatchObject({ payDate: 'TOTAL', gross: 2_200_000, net: 1_523_500, e_HOUSING: 200_000 });
+    expect(t.totals).toMatchObject({
+      payDate: 'TOTAL',
+      gross: 2_200_000,
+      net: 1_523_500,
+      e_HOUSING: 200_000,
+    });
     expect(t.groupBy).toBeUndefined();
   });
 
@@ -90,7 +108,13 @@ describe('payroll register', () => {
 
 describe('per-employee aggregation', () => {
   it('sums across runs and keeps the latest identity fields', () => {
-    const oct = row({ employeeId: 'a', staffNo: 'E002', payDate: '2026-10-28', tin: null, runId: 'r0' });
+    const oct = row({
+      employeeId: 'a',
+      staffNo: 'E002',
+      payDate: '2026-10-28',
+      tin: null,
+      runId: 'r0',
+    });
     const agg = perEmployee([a, oct]);
     expect(agg).toHaveLength(1);
     expect(agg[0]).toMatchObject({ gross: 2_000_000, paye: 376_500, tin: '1000000001' });
@@ -111,7 +135,11 @@ describe('statutory schedules', () => {
     const noNo = row({ employeeId: 'y', staffNo: 'E008', nssfNo: null });
     const t = nssfSchedule([a, none, noNo]);
     expect(t.rows.map((r) => r.staffNo)).toEqual(['E002', 'E008']);
-    expect(t.rows[0]).toMatchObject({ nssfEmployee: 50_000, nssfEmployer: 100_000, total: 150_000 });
+    expect(t.rows[0]).toMatchObject({
+      nssfEmployee: 50_000,
+      nssfEmployer: 100_000,
+      total: 150_000,
+    });
     expect(t.totals).toMatchObject({ total: 300_000 });
     expect(t.notes).toHaveLength(2);
     expect(nssfSchedule([a]).notes).toHaveLength(1);
@@ -132,37 +160,130 @@ describe('statutory schedules', () => {
 
 describe('department cost', () => {
   it('counts distinct employees and splits employer costs', () => {
-    const t = departmentCost([a, b, row({ employeeId: 'a', staffNo: 'E002', department: 'Ops', runId: 'r2' })]);
+    const t = departmentCost([
+      a,
+      b,
+      row({ employeeId: 'a', staffNo: 'E002', department: 'Ops', runId: 'r2' }),
+    ]);
     expect(t.rows).toEqual([
-      { department: 'Ops', headcount: 1, gross: 2_000_000, nssfEmployer: 200_000, otherEmployer: 0, employerCost: 2_200_000 },
-      { department: 'Unassigned', headcount: 1, gross: 1_200_000, nssfEmployer: 120_000, otherEmployer: 30_000, employerCost: 1_350_000 },
+      {
+        department: 'Ops',
+        headcount: 1,
+        gross: 2_000_000,
+        nssfEmployer: 200_000,
+        otherEmployer: 0,
+        employerCost: 2_200_000,
+      },
+      {
+        department: 'Unassigned',
+        headcount: 1,
+        gross: 1_200_000,
+        nssfEmployer: 120_000,
+        otherEmployer: 30_000,
+        employerCost: 1_350_000,
+      },
     ]);
     expect(t.totals).toMatchObject({ headcount: 2, employerCost: 3_550_000 });
   });
 });
 
-describe('bank summary', () => {
-  it('uses the latest non-superseded version per run and bank', () => {
+describe('payment summary', () => {
+  it('uses the latest non-superseded version per run and institution, banks first', () => {
     const base = { runId: 'r1', payDate: '2026-11-28', rowCount: 2 };
     const t = bankSummary([
       { ...base, bankName: 'Stanbic', version: 1, status: 'SUPERSEDED', totalAmount: 999 },
       { ...base, bankName: 'Stanbic', version: 2, status: 'GENERATED', totalAmount: 1000 },
       { ...base, bankName: 'Stanbic', version: 3, status: 'SENT', totalAmount: 1500 },
       { ...base, bankName: 'Absa', version: 1, status: 'SENT', totalAmount: 500, rowCount: 1 },
-      { ...base, runId: 'r2', bankName: 'Absa', version: 1, status: 'SENT', totalAmount: 700, rowCount: 1 },
+      {
+        ...base,
+        runId: 'r2',
+        bankName: 'Absa',
+        version: 1,
+        status: 'SENT',
+        totalAmount: 700,
+        rowCount: 1,
+      },
+      {
+        ...base,
+        bankName: 'MTN Mobile Money',
+        kind: 'MOBILE_MONEY',
+        version: 1,
+        status: 'SENT',
+        totalAmount: 300,
+        rowCount: 1,
+      },
+    ]);
+    expect(t.rows.map((r) => [r.bank, r.type, r.files, r.payees, r.total])).toEqual([
+      ['Absa', 'Bank', 2, 2, 1200],
+      ['Stanbic', 'Bank', 1, 2, 1500],
+      ['MTN Mobile Money', 'Mobile money', 1, 1, 300],
+    ]);
+    expect(t.totals).toMatchObject({ total: 3000, files: 4 });
+  });
+  it('adds re-issue files separately instead of replacing the original file', () => {
+    const base = { runId: 'r1', payDate: '2026-11-28', bankName: 'Absa', status: 'SENT' as const };
+    const t = bankSummary([
+      { ...base, version: 1, rowCount: 5, totalAmount: 5000 },
+      { ...base, version: 2, rowCount: 1, totalAmount: 800, reissue: true },
+    ]);
+    expect(t.rows[0]).toMatchObject({
+      files: 2,
+      payees: 5,
+      total: 5000,
+      reissuedPayees: 1,
+      reissued: 800,
+    });
+  });
+});
+
+describe('payment results report', () => {
+  it('counts paid, failed, pending and missing results per run and institution', () => {
+    const base = { runId: 'r1', payDate: '2026-10-30', payGroup: 'Monthly Staff', net: 100 };
+    const t = paymentResultsReport([
+      { ...base, institution: 'Absa', kind: 'BANK', status: 'PAID' },
+      { ...base, institution: 'Absa', kind: 'BANK', status: 'FAILED', net: 40 },
+      { ...base, institution: 'Absa', kind: 'BANK', status: null, net: 7 },
+      { ...base, institution: 'MTN Mobile Money', kind: 'MOBILE_MONEY', status: 'PENDING' },
     ]);
     expect(t.rows).toEqual([
-      { bank: 'Absa', files: 2, payees: 2, total: 1200 },
-      { bank: 'Stanbic', files: 1, payees: 2, total: 1500 },
+      {
+        payDate: '2026-10-30',
+        payGroup: 'Monthly Staff',
+        institution: 'Absa',
+        type: 'Bank',
+        paidCount: 1,
+        paidAmount: 100,
+        failedCount: 1,
+        failedAmount: 40,
+        pendingCount: 0,
+        noResultCount: 1,
+        noResultAmount: 7,
+      },
+      expect.objectContaining({
+        institution: 'MTN Mobile Money',
+        type: 'Mobile money',
+        pendingCount: 1,
+      }),
     ]);
-    expect(t.totals).toMatchObject({ total: 2700, files: 3 });
+    expect(t.totals).toMatchObject({ paidAmount: 100, failedCount: 1, noResultAmount: 7 });
   });
 });
 
 describe('loans', () => {
   it('lists loans and unsettled carry-forwards sorted by staff number', () => {
     const t = loanBalances(
-      [{ staffNo: 'E2', name: 'B', type: 'LOAN', principal: 1000, installment: 100, balance: 600, status: 'ACTIVE' }],
+      [
+        {
+          staffNo: 'E2',
+          name: 'B',
+          type: 'LOAN',
+          principal: 1000,
+          installment: 100,
+          balance: 600,
+          status: 'ACTIVE',
+        },
+      ],
       [{ staffNo: 'E1', name: 'A', componentCode: 'SACCO', amount: 50, fromPayDate: '2026-10-28' }],
     );
     expect(t.rows.map((r) => r.item)).toEqual(['CARRY FORWARD', 'LOAN']);
@@ -200,7 +321,12 @@ describe('selection', () => {
   it('parses search params with defaults and repeated run ids', () => {
     expect(parseSelection({})).toMatchObject({ mode: 'month', includeDraft: false });
     const s = parseSelection({ mode: 'runs', run: ['r1', 'r2,r3'], draft: '1', group: '1' });
-    expect(s).toMatchObject({ mode: 'runs', runIds: ['r1', 'r2', 'r3'], includeDraft: true, groupByDepartment: true });
+    expect(s).toMatchObject({
+      mode: 'runs',
+      runIds: ['r1', 'r2', 'r3'],
+      includeDraft: true,
+      groupByDepartment: true,
+    });
     expect(parseSelection({ mode: 'month', month: '2026-13' }).mode).toBe('month');
     expect(parseSelection({ mode: 'month', month: '2026-13' }).month).toBeUndefined();
     expect(parseSelection({ mode: ['fy'], fy: '2026' })).toMatchObject({ mode: 'fy', fy: 2026 });
@@ -211,7 +337,10 @@ describe('selection', () => {
       from: '2028-02-01',
       to: '2028-02-29',
     });
-    expect(payDateRange(parseSelection({}), '2026-11-25')).toEqual({ from: '2026-11-01', to: '2026-11-30' });
+    expect(payDateRange(parseSelection({}), '2026-11-25')).toEqual({
+      from: '2026-11-01',
+      to: '2026-11-30',
+    });
     expect(payDateRange(parseSelection({ mode: 'fy' }), '2026-03-10')).toEqual({
       from: '2025-07-01',
       to: '2026-06-30',
@@ -233,17 +362,19 @@ describe('selection', () => {
       { mode: 'fy', fy: '2026' },
     ]) {
       const s = parseSelection(p);
-      const back = parseSelection(Object.fromEntries(
-        [...new URLSearchParams(selectionQuery(s)).keys()].map((k) => [
-          k,
-          new URLSearchParams(selectionQuery(s)).getAll(k),
-        ]),
-      ));
+      const back = parseSelection(
+        Object.fromEntries(
+          [...new URLSearchParams(selectionQuery(s)).keys()].map((k) => [
+            k,
+            new URLSearchParams(selectionQuery(s)).getAll(k),
+          ]),
+        ),
+      );
       expect(back).toEqual(s);
     }
-    expect(describeSelection(parseSelection({ mode: 'runs', run: 'a', draft: '1' }), '2026-11-25')).toBe(
-      '1 selected run(s) — INCLUDES UNAPPROVED (DRAFT) RUNS',
-    );
+    expect(
+      describeSelection(parseSelection({ mode: 'runs', run: 'a', draft: '1' }), '2026-11-25'),
+    ).toBe('1 selected run(s) — INCLUDES UNAPPROVED (DRAFT) RUNS');
     expect(describeSelection(parseSelection({ mode: 'fy' }), '2026-11-25')).toBe('FY 2026/27');
     expect(describeSelection(parseSelection({}), '2026-11-25')).toBe('Pay month 2026-11');
   });

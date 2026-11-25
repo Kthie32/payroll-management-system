@@ -54,6 +54,7 @@ export const REPORT_KEYS = [
   'lst',
   'departments',
   'banks',
+  'payments',
   'loans',
 ] as const;
 export type ReportKey = (typeof REPORT_KEYS)[number];
@@ -61,7 +62,8 @@ export type ReportKey = (typeof REPORT_KEYS)[number];
 export const REPORT_META: Record<ReportKey, { title: string; description: string }> = {
   register: {
     title: 'Payroll register',
-    description: 'Every employee: earnings by component, statutory deductions, other deductions and net pay.',
+    description:
+      'Every employee: earnings by component, statutory deductions, other deductions and net pay.',
   },
   paye: {
     title: 'PAYE return summary (URA)',
@@ -69,7 +71,8 @@ export const REPORT_META: Record<ReportKey, { title: string; description: string
   },
   nssf: {
     title: 'NSSF schedule',
-    description: 'Per employee NSSF number, contribution base, 5% employee, 10% employer and total.',
+    description:
+      'Per employee NSSF number, contribution base, 5% employee, 10% employer and total.',
   },
   lst: {
     title: 'LST schedule by district',
@@ -80,11 +83,18 @@ export const REPORT_META: Record<ReportKey, { title: string; description: string
     description: 'Headcount, gross pay, employer NSSF and total employer cost per department.',
   },
   banks: {
-    title: 'Bank payment summary',
-    description: 'Totals per bank from the generated bank files (latest version per bank and run).',
+    title: 'Payment summary',
+    description:
+      'Totals per bank and mobile money provider from the payment files (latest version per run), plus re-issued payments.',
+  },
+  payments: {
+    title: 'Payment results',
+    description:
+      'Who was paid, whose payment failed and what is still pending, per run and bank or provider.',
   },
   loans: {
     title: 'Loans and carry-forward balances',
-    description: 'Outstanding loans and advances, plus deductions carried forward and not yet settled.',
+    description:
+      'Outstanding loans and advances, plus deductions carried forward and not yet settled.',
   },
 };

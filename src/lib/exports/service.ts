@@ -4,7 +4,7 @@ import { decrypt } from '@/lib/crypto';
 import { toUgx } from '@/lib/money';
 import { batchRef, buildBankFile, periodLabel, type BankFile, type PaymentRow } from './build';
 import { planPayments, readyToMarkExported, type PaymentPlan, type PayeeInput } from './group';
-import { DEFAULT_TEMPLATE, parseTemplate, type ExportTemplateSpec } from './template';
+import { defaultTemplateFor, parseTemplate, type ExportTemplateSpec } from './template';
 import { CONTENT_TYPES, safeFileName } from './writers';
 
 export class ExportError extends Error {
@@ -17,7 +17,8 @@ export class ExportError extends Error {
       | 'EXPORT_NOT_FOUND'
       | 'CHECKSUM_MISMATCH'
       | 'INVALID_TRANSITION'
-      | 'EXPORTS_INCOMPLETE',
+      | 'EXPORTS_INCOMPLETE'
+      | 'NOTHING_TO_REISSUE',
     message: string,
   ) {
     super(message);
@@ -27,6 +28,8 @@ export class ExportError extends Error {
 
 /** Run statuses from which bank files may be generated. */
 export const EXPORTABLE_STATUSES: readonly RunStatus[] = ['APPROVED', 'EXPORTED'];
+/** Run statuses from which failed payments may be re-issued. */
+export const REISSUE_STATUSES: readonly RunStatus[] = ['EXPORTED', 'PAID', 'LOCKED'];
 
 export function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -44,11 +47,12 @@ export async function templateForBank(
   client: PrismaClient,
   bankId: string,
 ): Promise<{ spec: ExportTemplateSpec; isDefault: boolean }> {
-  const row = await client.exportTemplate.findFirst({
-    where: { bankId },
-    orderBy: { updatedAt: 'desc' },
-  });
-  return row ? { spec: parseTemplate(row), isDefault: false } : { spec: DEFAULT_TEMPLATE, isDefault: true };
+  const [row, bank] = await Promise.all([
+    client.exportTemplate.findFirst({ where: { bankId }, orderBy: { updatedAt: 'desc' } }),
+    client.bank.findUnique({ where: { id: bankId }, select: { code: true, kind: true } }),
+  ]);
+  if (row) return { spec: parseTemplate(row), isDefault: false };
+  return { spec: defaultTemplateFor(bank ?? { code: '', kind: 'BANK' }), isDefault: true };
 }
 
 function displayName(e: { firstName: string; lastName: string; otherNames: string | null }) {
@@ -97,6 +101,7 @@ export async function loadPaymentPlan(client: PrismaClient, runId: string) {
             bankId: acct.bankId,
             bankName: acct.bank.name,
             bankCode: acct.bank.code,
+            bankKind: acct.bank.kind,
             branchCode: acct.branchCode,
             accountName: acct.accountName,
             accountNoEnc: acct.accountNoEnc,
@@ -108,18 +113,44 @@ export async function loadPaymentPlan(client: PrismaClient, runId: string) {
   return { run, plan: planPayments(payees) };
 }
 
+/** Prefix added to the narrative of a re-issue file (payments that failed the first time). */
+export const REISSUE_PREFIX = 'REISSUE';
+const NARRATIVE_MAX = 60;
+
 async function renderForBank(
   client: PrismaClient,
   plan: PaymentPlan,
   bankId: string,
   payDate: string,
   version: number,
+  only: ReadonlySet<string> | null = null,
 ): Promise<{ file: BankFile; bankName: string; bankCode: string }> {
   const group = plan.groups.find((g) => g.bankId === bankId);
-  if (!group) throw new ExportError('BANK_HAS_NO_PAYEES', 'No employees in this run are paid through that bank.');
-  const { spec } = await templateForBank(client, bankId);
+  if (!group)
+    throw new ExportError(
+      'BANK_HAS_NO_PAYEES',
+      'No employees in this run are paid through that bank.',
+    );
+  const base = (await templateForBank(client, bankId)).spec;
+  const payees = only ? group.payees.filter((p) => only.has(p.employeeId)) : group.payees;
+  if (payees.length === 0) {
+    throw new ExportError(
+      'NOTHING_TO_REISSUE',
+      'None of those employees are paid through this bank now.',
+    );
+  }
+  const spec: ExportTemplateSpec = only
+    ? {
+        ...base,
+        mapping: {
+          ...base.mapping,
+          narrative: `${REISSUE_PREFIX} ${base.mapping.narrative}`.slice(0, NARRATIVE_MAX),
+        },
+      }
+    : base;
+  const total = payees.reduce((sum, p) => sum + p.net, 0);
   // Decrypt account numbers only here, only for the rows going into this file.
-  const rows: PaymentRow[] = group.payees.map((p) => ({
+  const rows: PaymentRow[] = payees.map((p) => ({
     staffNo: p.staffNo,
     employeeName: p.employeeName,
     accountName: p.account!.accountName,
@@ -138,7 +169,7 @@ async function renderForBank(
       payDate,
       period: periodLabel(payDate),
     },
-    group.total,
+    total,
   );
   return { file, bankName: group.bankName, bankCode: group.bankCode };
 }
@@ -158,12 +189,26 @@ export async function generateBankExport(
   runId: string,
   bankId: string,
   actor: ActorContext,
+  opts: { reissueEmployeeIds?: readonly string[] } = {},
 ) {
   const { run, plan } = await loadPaymentPlan(client, runId);
-  if (!EXPORTABLE_STATUSES.includes(run.status)) {
-    throw new ExportError('RUN_NOT_EXPORTABLE', 'Bank files can only be generated for approved runs.');
+  const reissue = opts.reissueEmployeeIds ? new Set(opts.reissueEmployeeIds) : null;
+  if (reissue) {
+    if (!REISSUE_STATUSES.includes(run.status)) {
+      throw new ExportError(
+        'RUN_NOT_EXPORTABLE',
+        'Re-issue files are made after the run has been exported.',
+      );
+    }
+    if (reissue.size === 0)
+      throw new ExportError('NOTHING_TO_REISSUE', 'There are no failed payments to re-issue.');
+  } else if (!EXPORTABLE_STATUSES.includes(run.status)) {
+    throw new ExportError(
+      'RUN_NOT_EXPORTABLE',
+      'Bank files can only be generated for approved runs.',
+    );
   }
-  if (plan.missingAccounts.length > 0) {
+  if (!reissue && plan.missingAccounts.length > 0) {
     throw new ExportError(
       'MISSING_ACCOUNTS',
       `${plan.missingAccounts.length} employee(s) have no active bank account. Fix them first.`,
@@ -176,7 +221,13 @@ export async function generateBankExport(
   });
   const version = (latest?.version ?? 0) + 1;
   const payDate = isoDate(run.period.payDate);
-  const { file, bankName } = await renderForBank(client, plan, bankId, payDate, version);
+  const { file, bankName } = await renderForBank(client, plan, bankId, payDate, version, reissue);
+  const included = reissue
+    ? plan.groups
+        .find((g) => g.bankId === bankId)!
+        .payees.filter((p) => reissue.has(p.employeeId))
+        .map((p) => p.employeeId)
+    : null;
 
   return client.$transaction(async (tx) => {
     const superseded = await tx.bankExport.updateMany({
@@ -208,6 +259,8 @@ export async function generateBankExport(
         totalAmount: file.totalAmount,
         sha256: file.sha256,
         supersededCount: superseded.count,
+        // A re-issue file holds only these payees; re-rendering it for download needs the list.
+        ...(included ? { reissue: true, employeeIds: included } : {}),
       },
       ip: actor.ip,
     });
@@ -220,12 +273,27 @@ export async function generateBankExport(
  * If employee bank details changed since generation the checksum differs and the download is
  * refused — generate a new version instead.
  */
-export async function renderRecordedExport(client: PrismaClient, exportId: string, actor: ActorContext) {
-  const rec = await client.bankExport.findUnique({ where: { id: exportId }, include: { bank: true } });
+export async function renderRecordedExport(
+  client: PrismaClient,
+  exportId: string,
+  actor: ActorContext,
+) {
+  const rec = await client.bankExport.findUnique({
+    where: { id: exportId },
+    include: { bank: true },
+  });
   if (!rec) throw new ExportError('EXPORT_NOT_FOUND', 'Export not found.');
   const { run, plan } = await loadPaymentPlan(client, rec.runId);
   const payDate = isoDate(run.period.payDate);
-  const { file, bankCode } = await renderForBank(client, plan, rec.bankId, payDate, rec.version);
+  const subset = await reissueSubset(client, rec.id);
+  const { file, bankCode } = await renderForBank(
+    client,
+    plan,
+    rec.bankId,
+    payDate,
+    rec.version,
+    subset,
+  );
   if (file.sha256 !== rec.fileSha256) {
     throw new ExportError(
       'CHECKSUM_MISMATCH',
@@ -238,7 +306,12 @@ export async function renderRecordedExport(client: PrismaClient, exportId: strin
       action: 'BANK_EXPORT_DOWNLOADED',
       entity: 'BankExport',
       entityId: rec.id,
-      after: { runId: rec.runId, bank: rec.bank.name, version: rec.version, sha256: rec.fileSha256 },
+      after: {
+        runId: rec.runId,
+        bank: rec.bank.name,
+        version: rec.version,
+        sha256: rec.fileSha256,
+      },
       ip: actor.ip,
     }),
   );
@@ -252,7 +325,10 @@ export async function renderRecordedExport(client: PrismaClient, exportId: strin
 }
 
 /** Banks whose latest export for this run is not superseded. */
-export async function currentExportBankIds(client: PrismaClient, runId: string): Promise<Set<string>> {
+export async function currentExportBankIds(
+  client: PrismaClient,
+  runId: string,
+): Promise<Set<string>> {
   const rows = await client.bankExport.findMany({
     where: { runId, status: { in: ['GENERATED', 'SENT'] } },
     select: { bankId: true },
@@ -278,7 +354,10 @@ export async function transitionRun(
   to: RunTransition,
   actor: ActorContext,
 ) {
-  const run = await client.payrollRun.findUnique({ where: { id: runId }, select: { status: true } });
+  const run = await client.payrollRun.findUnique({
+    where: { id: runId },
+    select: { status: true },
+  });
   if (!run) throw new ExportError('RUN_NOT_FOUND', 'Payroll run not found.');
   if (run.status !== FROM[to]) {
     throw new ExportError(
@@ -306,7 +385,10 @@ export async function transitionRun(
       data: { status: to, ...stamp },
     });
     if (to === 'EXPORTED') {
-      await tx.bankExport.updateMany({ where: { runId, status: 'GENERATED' }, data: { status: 'SENT' } });
+      await tx.bankExport.updateMany({
+        where: { runId, status: 'GENERATED' },
+        data: { status: 'SENT' },
+      });
     }
     await withAudit(tx, {
       actorId: actor.actorId,
@@ -319,4 +401,21 @@ export async function transitionRun(
     });
     return updated;
   });
+}
+
+/**
+ * The payees of a re-issue export (recorded in its generation audit entry), or null for a normal
+ * export that covers every payee of the bank.
+ */
+export async function reissueSubset(
+  client: PrismaClient,
+  exportId: string,
+): Promise<Set<string> | null> {
+  const entry = await client.auditLog.findFirst({
+    where: { entity: 'BankExport', entityId: exportId, action: 'BANK_EXPORT_GENERATED' },
+    select: { after: true },
+  });
+  const after = entry?.after as { reissue?: boolean; employeeIds?: unknown } | null | undefined;
+  if (!after?.reissue || !Array.isArray(after.employeeIds)) return null;
+  return new Set(after.employeeIds.filter((x): x is string => typeof x === 'string'));
 }

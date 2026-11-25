@@ -65,9 +65,11 @@ export function financialYearStart(iso: IsoDate): IsoDate {
 /** `2026-11` → `November 2026`. */
 export function monthLabel(yyyyMm: string): string {
   const [y, m] = yyyyMm.split('-').map(Number);
-  return new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
-    new Date(Date.UTC(y!, (m ?? 1) - 1, 1)),
-  );
+  return new Intl.DateTimeFormat('en-GB', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(y!, (m ?? 1) - 1, 1)));
 }
 
 /** `2026-11-30` → `30 Nov 2026`. */

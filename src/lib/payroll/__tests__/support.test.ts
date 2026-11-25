@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { parseInputsCsv, MAX_IMPORT_ROWS, type CsvComponent } from '../csv-inputs';
-import { displayCode, loanLineCode, loanRepaymentsFromLines, parseLoanLineCode } from '../loan-codes';
+import {
+  displayCode,
+  loanLineCode,
+  loanRepaymentsFromLines,
+  parseLoanLineCode,
+} from '../loan-codes';
 import {
   approveBlockReason,
   isEditable,
@@ -43,16 +48,38 @@ describe('status rules', () => {
   it('blocks submission with errors or no employees', () => {
     expect(submitBlockReason({ status: 'COMPUTED', headcount: 3, errorCount: 0 })).toBeNull();
     expect(submitBlockReason({ status: 'DRAFT', headcount: 3, errorCount: 0 })).toMatch(/computed/);
-    expect(submitBlockReason({ status: 'COMPUTED', headcount: 0, errorCount: 0 })).toMatch(/no employees/);
-    expect(submitBlockReason({ status: 'COMPUTED', headcount: 3, errorCount: 2 })).toMatch(/2 employee/);
+    expect(submitBlockReason({ status: 'COMPUTED', headcount: 0, errorCount: 0 })).toMatch(
+      /no employees/,
+    );
+    expect(submitBlockReason({ status: 'COMPUTED', headcount: 3, errorCount: 2 })).toMatch(
+      /2 employee/,
+    );
   });
-  it('enforces separation of duties on approve and reject', () => {
-    expect(approveBlockReason({ status: 'SUBMITTED', computedById: 'u1', actorId: 'u2' })).toBeNull();
-    expect(approveBlockReason({ status: 'SUBMITTED', computedById: 'u1', actorId: 'u1' })).toMatch(/separation/);
-    expect(approveBlockReason({ status: 'COMPUTED', computedById: 'u1', actorId: 'u2' })).toMatch(/submitted/);
-    expect(rejectBlockReason({ status: 'SUBMITTED', computedById: 'u1', actorId: 'u2' })).toBeNull();
-    expect(rejectBlockReason({ status: 'SUBMITTED', computedById: 'u1', actorId: 'u1' })).toMatch(/separation/);
-    expect(rejectBlockReason({ status: 'APPROVED', computedById: 'u1', actorId: 'u2' })).toMatch(/submitted/);
+  it('enforces separation of duties on approve and reject for every preparer', () => {
+    const prep = { createdById: 'c', computedById: 'p', submittedById: 's' };
+    const sub = { ...prep, status: 'SUBMITTED' as const };
+    expect(approveBlockReason({ ...sub, actorId: 'approver' })).toBeNull();
+    expect(approveBlockReason({ ...sub, actorId: 'c' })).toMatch(/created this run.*separation/);
+    expect(approveBlockReason({ ...sub, actorId: 'p' })).toMatch(/computed this run/);
+    expect(approveBlockReason({ ...sub, actorId: 's' })).toMatch(/submitted this run/);
+    expect(approveBlockReason({ ...prep, status: 'COMPUTED', actorId: 'approver' })).toMatch(
+      /submitted run/,
+    );
+    expect(rejectBlockReason({ ...sub, actorId: 'approver' })).toBeNull();
+    expect(rejectBlockReason({ ...sub, actorId: 'c' })).toMatch(/cannot reject/);
+    expect(rejectBlockReason({ ...sub, actorId: 's' })).toMatch(/submitted this run/);
+    expect(rejectBlockReason({ ...prep, status: 'APPROVED', actorId: 'approver' })).toMatch(
+      /submitted run/,
+    );
+    expect(
+      approveBlockReason({
+        createdById: null,
+        computedById: null,
+        submittedById: null,
+        status: 'SUBMITTED',
+        actorId: 'x',
+      }),
+    ).toBeNull();
   });
 });
 
@@ -70,15 +97,26 @@ describe('totals and variance', () => {
     warnings,
   });
   it('sums employee amounts', () => {
-    const t = sumTotals([row(100, 85, ['A']), row(200, 185, ['B', 'C'])], [
-      { employeeId: 'e', staffNo: 'S', name: 'N', message: 'm' },
-    ]);
-    expect(t).toMatchObject({ headcount: 2, gross: 300, net: 270, paye: 20, employerCost: 320, warningCount: 3 });
+    const t = sumTotals(
+      [row(100, 85, ['A']), row(200, 185, ['B', 'C'])],
+      [{ employeeId: 'e', staffNo: 'S', name: 'N', message: 'm' }],
+    );
+    expect(t).toMatchObject({
+      headcount: 2,
+      gross: 300,
+      net: 270,
+      paye: 20,
+      employerCost: 320,
+      warningCount: 3,
+    });
     expect(t.errors).toHaveLength(1);
   });
   it('parses stored totals defensively', () => {
     expect(parseTotals(null)).toEqual(emptyTotals());
-    expect(parseTotals({ gross: 5, net: 'x', errors: [{ message: 'm' }] })).toMatchObject({ gross: 5, net: 0 });
+    expect(parseTotals({ gross: 5, net: 'x', errors: [{ message: 'm' }] })).toMatchObject({
+      gross: 5,
+      net: 0,
+    });
     expect(parseTotals({ gross: 1.5 }).gross).toBe(0);
     expect(parseTotals({ errors: 'no' }).errors).toEqual([]);
   });
@@ -133,8 +171,20 @@ describe('parseInputsCsv', () => {
     );
     expect(r.fileErrors).toEqual([]);
     expect(r.validCount).toBe(2);
-    expect(r.rows[0]).toMatchObject({ line: 2, employeeId: 'e1', componentId: 'c1', quantity: 1.5, amount: null, errors: [] });
-    expect(r.rows[1]).toMatchObject({ line: 3, employeeName: 'Paul', componentId: 'c2', amount: 250_000 });
+    expect(r.rows[0]).toMatchObject({
+      line: 2,
+      employeeId: 'e1',
+      componentId: 'c1',
+      quantity: 1.5,
+      amount: null,
+      errors: [],
+    });
+    expect(r.rows[1]).toMatchObject({
+      line: 3,
+      employeeName: 'Paul',
+      componentId: 'c2',
+      amount: 250_000,
+    });
   });
 
   it('reports row errors', () => {
@@ -171,11 +221,16 @@ describe('parseInputsCsv', () => {
   });
 
   it('reports file-level errors', () => {
-    expect(parseInputsCsv('staffNo,amount\nS001,5', lookups).fileErrors[0]).toMatch(/Missing column/);
+    expect(parseInputsCsv('staffNo,amount\nS001,5', lookups).fileErrors[0]).toMatch(
+      /Missing column/,
+    );
     expect(parseInputsCsv('staffNo,componentCode,quantity,amount\n', lookups).fileErrors).toEqual([
       'The file has no data rows.',
     ]);
-    const big = ['staffNo,componentCode,quantity,amount', ...Array.from({ length: MAX_IMPORT_ROWS + 1 }, () => 'S001,BONUS,,1')];
+    const big = [
+      'staffNo,componentCode,quantity,amount',
+      ...Array.from({ length: MAX_IMPORT_ROWS + 1 }, () => 'S001,BONUS,,1'),
+    ];
     expect(parseInputsCsv(big.join('\n'), lookups).fileErrors[0]).toMatch(/Too many rows/);
   });
 });
