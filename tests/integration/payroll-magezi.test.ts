@@ -371,9 +371,12 @@ describe('payment results and re-issue', () => {
     );
     const file = await renderRecordedExport(db, reissue.id, actor);
     expect(new TextDecoder().decode(file.bytes)).toMatch(/REISSUE/);
+    // The re-issue is recorded on the export itself, linked to the file whose payment failed.
+    const reRec = await db.bankExport.findUniqueOrThrow({ where: { id: reissue.id } });
+    expect(reRec).toMatchObject({ isReissue: true, reissueOfId: momoFile.id, status: 'GENERATED' });
+    expect(reRec.payeeEmployeeIds).toEqual([ben.id]);
 
-    // The re-issue is sent and succeeds: the latest result wins.
-    await db.bankExport.update({ where: { id: reissue.id }, data: { status: 'SENT' } });
+    // Results can be uploaded for a re-issue straight away; doing so marks it SENT.
     await importPaymentResults(
       db,
       reissue.id,
@@ -382,5 +385,28 @@ describe('payment results and re-issue', () => {
     );
     summary = await runPaymentSummary(db, run.id);
     expect(summary).toMatchObject({ paid: 2, failed: [] });
+    expect((await db.bankExport.findUniqueOrThrow({ where: { id: reissue.id } })).status).toBe(
+      'SENT',
+    );
+  });
+});
+
+describe('payslip link lockout', () => {
+  it('counts wrong answers on the delivery and locks at the limit', async () => {
+    const { recordVerifyFailure, isLinkLocked, failedAttempts } =
+      await import('@/lib/payroll/server/delivery');
+    const { MAX_VERIFY_ATTEMPTS } = await import('@/lib/payroll/payslip-links');
+    const delivery = await db.payslipDelivery.findFirstOrThrow({ where: { failedAttempts: 0 } });
+    for (let i = 1; i < MAX_VERIFY_ATTEMPTS; i++) await recordVerifyFailure(delivery.id, null);
+    expect(await failedAttempts(delivery.id)).toBe(MAX_VERIFY_ATTEMPTS - 1);
+    expect(await isLinkLocked(delivery.id)).toBe(false);
+    await recordVerifyFailure(delivery.id, null);
+    expect(await isLinkLocked(delivery.id)).toBe(true);
+    const row = await db.payslipDelivery.findUniqueOrThrow({ where: { id: delivery.id } });
+    expect(row.lockedAt).not.toBeNull();
+    const locked = await db.auditLog.count({
+      where: { entityId: delivery.id, action: 'PAYSLIP_LINK_LOCKED' },
+    });
+    expect(locked).toBe(1);
   });
 });

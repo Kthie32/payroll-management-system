@@ -155,27 +155,13 @@ export async function buildReport(
       },
     });
     const runIds = new Set(exports.map((e) => e.runId));
-    // Re-issue files are flagged in their generation audit entry.
-    const gen = await client.auditLog.findMany({
-      where: {
-        entity: 'BankExport',
-        action: 'BANK_EXPORT_GENERATED',
-        entityId: { in: exports.map((e) => e.id) },
-      },
-      select: { entityId: true, after: true },
-    });
-    const reissued = new Set(
-      gen
-        .filter((g) => (g.after as { reissue?: boolean } | null)?.reissue === true)
-        .map((g) => g.entityId),
-    );
     const t = bankSummary(
       exports.map((e) => ({
         runId: e.runId,
         payDate: iso(e.run.period.payDate),
         bankName: e.bank.name,
         kind: e.bank.kind,
-        reissue: reissued.has(e.id),
+        reissue: e.isReissue,
         version: e.version,
         status: e.status,
         rowCount: e.rowCount,

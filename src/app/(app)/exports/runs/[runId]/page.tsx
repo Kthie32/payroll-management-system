@@ -68,9 +68,10 @@ export default async function RunExportPage({ params }: { params: Promise<{ runI
   const canMarkPaid = can(user.roles, 'payroll.markPaid');
   const canGenerate = can(user.roles, 'exports.generate');
   const canUpload = can(user.roles, 'payments.upload');
-  // Files that went to the bank: results can be uploaded for these.
+  // Files that went to the bank: normal files once the run is exported (SENT), re-issue files
+  // as soon as they are generated (they are uploaded to the bank straight away).
   const sentExports = exports.filter(
-    (e) => e.status === 'SENT' || (e.status === 'GENERATED' && run.status !== 'APPROVED'),
+    (e) => e.status === 'SENT' || (e.isReissue && e.status === 'GENERATED'),
   );
   const resultIssues = payments.failed.length + payments.pending + payments.noResult;
   const failedByBank = new Map<string, { name: string; count: number }>();
@@ -195,6 +196,7 @@ export default async function RunExportPage({ params }: { params: Promise<{ runI
                                 >
                                   {e.status.toLowerCase()}
                                 </Badge>
+                                {e.isReissue ? <Badge variant="outline">re-issue</Badge> : null}
                               </div>
                               <div className="text-xs text-muted-foreground">
                                 {e.rowCount} rows · UGX {fmtMoney(toUgx(e.totalAmount))} ·{' '}
@@ -307,7 +309,8 @@ export default async function RunExportPage({ params }: { params: Promise<{ runI
                 {sentExports.map((e) => (
                   <div key={e.id} className="space-y-2 rounded-md border p-3">
                     <p className="text-sm font-medium">
-                      {e.bank.name} · version {e.version} ({e.rowCount} rows)
+                      {e.bank.name} · version {e.version}
+                      {e.isReissue ? ' (re-issue)' : ''} ({e.rowCount} rows)
                     </p>
                     <ResultsUpload runId={run.id} exportId={e.id} />
                   </div>

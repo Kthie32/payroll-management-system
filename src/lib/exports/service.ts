@@ -219,6 +219,14 @@ export async function generateBankExport(
     orderBy: { version: 'desc' },
     select: { version: true },
   });
+  // A re-issue points at the latest normal file of this run and bank (the one whose payments failed).
+  const original = reissue
+    ? await client.bankExport.findFirst({
+        where: { runId, bankId, isReissue: false },
+        orderBy: { version: 'desc' },
+        select: { id: true },
+      })
+    : null;
   const version = (latest?.version ?? 0) + 1;
   const payDate = isoDate(run.period.payDate);
   const { file, bankName } = await renderForBank(client, plan, bankId, payDate, version, reissue);
@@ -243,6 +251,9 @@ export async function generateBankExport(
         rowCount: file.rowCount,
         totalAmount: BigInt(file.totalAmount),
         generatedById: actor.actorId,
+        ...(included
+          ? { isReissue: true, reissueOfId: original?.id ?? null, payeeEmployeeIds: included }
+          : {}),
       },
     });
     await withAudit(tx, {
@@ -259,8 +270,7 @@ export async function generateBankExport(
         totalAmount: file.totalAmount,
         sha256: file.sha256,
         supersededCount: superseded.count,
-        // A re-issue file holds only these payees; re-rendering it for download needs the list.
-        ...(included ? { reissue: true, employeeIds: included } : {}),
+        ...(included ? { reissue: true, payeeCount: included.length } : {}),
       },
       ip: actor.ip,
     });
@@ -285,7 +295,7 @@ export async function renderRecordedExport(
   if (!rec) throw new ExportError('EXPORT_NOT_FOUND', 'Export not found.');
   const { run, plan } = await loadPaymentPlan(client, rec.runId);
   const payDate = isoDate(run.period.payDate);
-  const subset = await reissueSubset(client, rec.id);
+  const subset = reissueSubset(rec);
   const { file, bankCode } = await renderForBank(
     client,
     plan,
@@ -404,18 +414,12 @@ export async function transitionRun(
 }
 
 /**
- * The payees of a re-issue export (recorded in its generation audit entry), or null for a normal
- * export that covers every payee of the bank.
+ * The payees of a re-issue export, or null for a normal export that covers every payee of the bank.
  */
-export async function reissueSubset(
-  client: PrismaClient,
-  exportId: string,
-): Promise<Set<string> | null> {
-  const entry = await client.auditLog.findFirst({
-    where: { entity: 'BankExport', entityId: exportId, action: 'BANK_EXPORT_GENERATED' },
-    select: { after: true },
-  });
-  const after = entry?.after as { reissue?: boolean; employeeIds?: unknown } | null | undefined;
-  if (!after?.reissue || !Array.isArray(after.employeeIds)) return null;
-  return new Set(after.employeeIds.filter((x): x is string => typeof x === 'string'));
+export function reissueSubset(rec: {
+  isReissue: boolean;
+  payeeEmployeeIds: unknown;
+}): Set<string> | null {
+  if (!rec.isReissue || !Array.isArray(rec.payeeEmployeeIds)) return null;
+  return new Set(rec.payeeEmployeeIds.filter((x): x is string => typeof x === 'string'));
 }

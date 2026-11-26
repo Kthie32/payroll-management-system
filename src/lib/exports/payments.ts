@@ -26,7 +26,7 @@ async function exportPayees(client: PrismaClient, exportId: string) {
   if (!rec) throw new ExportError('EXPORT_NOT_FOUND', 'Export not found.');
   const [{ plan }, subset, runEmployees] = await Promise.all([
     loadPaymentPlan(client, rec.runId),
-    reissueSubset(client, rec.id),
+    Promise.resolve(reissueSubset(rec)),
     client.payrollRunEmployee.findMany({
       where: { runId: rec.runId },
       select: { id: true, employeeId: true },
@@ -46,9 +46,18 @@ async function exportPayees(client: PrismaClient, exportId: string) {
   return { rec, payees };
 }
 
-/** Results can be recorded once the file has been sent to the bank (run marked exported). */
-function assertSent(rec: { status: string }) {
-  if (rec.status !== 'SENT') {
+/**
+ * Results can be recorded once a file has gone to the bank or provider:
+ * - a normal file once the run is marked exported (file status SENT);
+ * - a re-issue file as soon as it is generated, because re-issues are made after the run is
+ *   already exported and are uploaded to the bank straight away. Recording results for a
+ *   re-issue marks it SENT.
+ */
+function assertSent(rec: { status: string; isReissue: boolean }) {
+  const ok = rec.isReissue
+    ? rec.status === 'GENERATED' || rec.status === 'SENT'
+    : rec.status === 'SENT';
+  if (!ok) {
     throw new ExportError(
       'INVALID_TRANSITION',
       'Upload results for a file that has been sent to the bank (mark the run exported first).',
@@ -89,6 +98,10 @@ export async function importPaymentResults(
   }
   const counts = { PAID: 0, FAILED: 0, PENDING: 0 };
   await client.$transaction(async (tx) => {
+    if (rec.isReissue && rec.status === 'GENERATED') {
+      // Results prove the re-issue reached the bank.
+      await tx.bankExport.update({ where: { id: rec.id }, data: { status: 'SENT' } });
+    }
     for (const r of parsed.rows) {
       counts[r.status!]++;
       const data = {

@@ -565,23 +565,31 @@ model ExportTemplate {
 }
 
 model BankExport {
-  id            String           @id @default(cuid())
-  runId         String           @map("run_id")
-  bankId        String           @map("bank_id")
-  version       Int
-  fileSha256    String           @map("file_sha256") @db.Char(64)
-  rowCount      Int              @map("row_count")
-  totalAmount   BigInt           @map("total_amount")
-  generatedById String           @map("generated_by_id")
-  generatedAt   DateTime         @default(now()) @map("generated_at")
-  status        BankExportStatus @default(GENERATED)
+  id               String           @id @default(cuid())
+  runId            String           @map("run_id")
+  bankId           String           @map("bank_id")
+  version          Int
+  fileSha256       String           @map("file_sha256") @db.Char(64)
+  rowCount         Int              @map("row_count")
+  totalAmount      BigInt           @map("total_amount")
+  generatedById    String           @map("generated_by_id")
+  generatedAt      DateTime         @default(now()) @map("generated_at")
+  status           BankExportStatus @default(GENERATED)
+  /// A re-issue file re-sends only payments that failed in an earlier file of the same run and bank.
+  isReissue        Boolean          @default(false) @map("is_reissue")
+  reissueOfId      String?          @map("reissue_of_id")
+  /// Re-issue files only: the employee ids included (one payslip per employee per run).
+  payeeEmployeeIds Json?            @map("payee_employee_ids")
 
   run         PayrollRun      @relation(fields: [runId], references: [id], onDelete: Restrict)
   bank        Bank            @relation(fields: [bankId], references: [id], onDelete: Restrict)
   generatedBy User            @relation(fields: [generatedById], references: [id], onDelete: Restrict)
+  reissueOf   BankExport?     @relation("BankExportReissue", fields: [reissueOfId], references: [id], onDelete: Restrict)
+  reissues    BankExport[]    @relation("BankExportReissue")
   results     PaymentResult[]
 
   @@unique([runId, bankId, version])
+  @@index([reissueOfId])
   @@index([bankId])
   @@index([generatedById])
   @@map("bank_exports")
@@ -615,17 +623,20 @@ model OutboundMessage {
 
 /// A payslip sent to an employee by email or SMS link. Only the SHA-256 of the link token is stored.
 model PayslipDelivery {
-  id            String          @id @default(cuid())
-  runEmployeeId String          @map("run_employee_id")
-  channel       DeliveryChannel
-  recipient     String          @db.VarChar(191)
-  tokenHash     String          @unique @map("token_hash") @db.Char(64)
-  expiresAt     DateTime        @map("expires_at")
-  messageId     String?         @map("message_id")
-  openedAt      DateTime?       @map("opened_at")
-  openCount     Int             @default(0) @map("open_count")
-  createdById   String          @map("created_by_id")
-  createdAt     DateTime        @default(now()) @map("created_at")
+  id             String          @id @default(cuid())
+  runEmployeeId  String          @map("run_employee_id")
+  channel        DeliveryChannel
+  recipient      String          @db.VarChar(191)
+  tokenHash      String          @unique @map("token_hash") @db.Char(64)
+  expiresAt      DateTime        @map("expires_at")
+  messageId      String?         @map("message_id")
+  openedAt       DateTime?       @map("opened_at")
+  openCount      Int             @default(0) @map("open_count")
+  /// Wrong identity answers on the public link; the link locks at the limit.
+  failedAttempts Int             @default(0) @map("failed_attempts")
+  lockedAt       DateTime?       @map("locked_at")
+  createdById    String          @map("created_by_id")
+  createdAt      DateTime        @default(now()) @map("created_at")
 
   runEmployee PayrollRunEmployee @relation(fields: [runEmployeeId], references: [id], onDelete: Restrict)
   message     OutboundMessage?   @relation(fields: [messageId], references: [id], onDelete: Restrict)

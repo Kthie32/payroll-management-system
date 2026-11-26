@@ -209,31 +209,47 @@ export async function findDeliveryByToken(token: string) {
   return d;
 }
 
-/** Failed identity checks for a delivery (append-only audit log is the counter). */
+/** Failed identity checks recorded on the delivery. */
 export async function failedAttempts(deliveryId: string): Promise<number> {
-  return db.auditLog.count({
-    where: {
-      entity: 'PayslipDelivery',
-      entityId: deliveryId,
-      action: 'PAYSLIP_LINK_VERIFY_FAILED',
-    },
+  const d = await db.payslipDelivery.findUnique({
+    where: { id: deliveryId },
+    select: { failedAttempts: true },
   });
+  return d?.failedAttempts ?? 0;
 }
 
 export async function isLinkLocked(deliveryId: string): Promise<boolean> {
-  return (await failedAttempts(deliveryId)) >= MAX_VERIFY_ATTEMPTS;
+  const d = await db.payslipDelivery.findUnique({
+    where: { id: deliveryId },
+    select: { failedAttempts: true, lockedAt: true },
+  });
+  return Boolean(d && (d.lockedAt || d.failedAttempts >= MAX_VERIFY_ATTEMPTS));
 }
 
+/** Counts a wrong answer atomically and locks the link at the limit. The audit entry is the trail. */
 export async function recordVerifyFailure(deliveryId: string, ip: string | null) {
-  await db.$transaction((tx) =>
-    withAudit(tx, {
+  await db.$transaction(async (tx) => {
+    const d = await tx.payslipDelivery.update({
+      where: { id: deliveryId },
+      data: { failedAttempts: { increment: 1 } },
+      select: { failedAttempts: true, lockedAt: true },
+    });
+    const lock = d.failedAttempts >= MAX_VERIFY_ATTEMPTS && !d.lockedAt;
+    if (lock) {
+      await tx.payslipDelivery.update({
+        where: { id: deliveryId },
+        data: { lockedAt: new Date() },
+      });
+    }
+    await withAudit(tx, {
       actorId: null,
-      action: 'PAYSLIP_LINK_VERIFY_FAILED',
+      action: lock ? 'PAYSLIP_LINK_LOCKED' : 'PAYSLIP_LINK_VERIFY_FAILED',
       entity: 'PayslipDelivery',
       entityId: deliveryId,
+      after: { failedAttempts: d.failedAttempts },
       ip,
-    }),
-  );
+    });
+  });
 }
 
 export async function recordOpen(deliveryId: string, ip: string | null) {
