@@ -402,7 +402,7 @@ async function ComponentsTab({
                   const to = a.effectiveTo ? dateToIso(a.effectiveTo) : null;
                   const s = status(from, to);
                   return (
-                    <TableRow key={a.id}>
+                    <TableRow key={a.id} data-testid={`component-row-${a.component.code}`}>
                       <TableCell className="text-sm">
                         {a.component.name}
                         <p className="text-xs text-muted-foreground">

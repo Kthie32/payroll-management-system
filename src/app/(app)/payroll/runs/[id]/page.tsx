@@ -174,7 +174,9 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
             {run.payGroup.name}: {formatIsoDate(toIsoDate(run.period.startDate))} –{' '}
             {formatIsoDate(toIsoDate(run.period.endDate))}
           </h1>
-          <RunStatusBadge status={run.status} />
+          <span data-testid="run-status">
+            <RunStatusBadge status={run.status} />
+          </span>
         </div>
         <p className="text-sm text-muted-foreground">
           Pay date {formatIsoDate(toIsoDate(run.period.payDate))}

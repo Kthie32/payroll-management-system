@@ -11,7 +11,7 @@ import { createUserAction, type CreateUserState } from './actions';
 export function CreateUserForm() {
   const [state, action, pending] = useActionState<CreateUserState, FormData>(createUserAction, {});
   return (
-    <form action={action} className="space-y-4">
+    <form data-testid="create-user-form" action={action} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="name">Full name</Label>
