@@ -10,8 +10,9 @@ const PLAN = {
     '/dashboard', '/employees', '/employees/departments', '/employees/banks', '/payroll',
     '/payroll/periods', '/loans', '/reports', '/settings', '/settings/statutory',
     '/settings/components', '/settings/pay-groups', '/settings/general', '/audit',
+    '/exports', '/exports/templates', '/admin/users', '/admin/messages',
   ],
-  'payroll@example.com': ['/dashboard', '/payroll', '/payroll/periods', '/exports', '/exports/templates', '/reports'],
+  'payroll@example.com': ['/dashboard', '/payroll', '/payroll/periods', '/reports', '/admin/messages', '/employees'],
   'hr@example.com': ['/employees/new', '/employees/import', '/loans/new'],
 };
 
