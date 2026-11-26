@@ -3,6 +3,8 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
+  // Match Next.js: automatic JSX runtime (no global React import needed).
+  esbuild: { jsx: 'automatic' },
   test: {
     environment: 'node',
     include: ['tests/integration/**/*.test.ts'],
