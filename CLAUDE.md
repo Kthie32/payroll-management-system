@@ -6,7 +6,9 @@ the non-negotiable rules and the domain rules.
 ## Stack (fixed)
 
 - Next.js 15 (App Router) + TypeScript `strict` + pnpm
-- MySQL 8.0 (local Windows service `MYSQL80` in development; MySQL 8 in production) via Prisma 6
+- MySQL 8.0 via Prisma 6. Development uses a **private MySQL instance** on `127.0.0.1:3307`
+  (data in `%USERPROFILE%\.payroll-mysql\data`, started by `scripts/start-local-db.bat`) because the
+  installed `MYSQL80` service needs admin rights. Production: MySQL 8.
 - Auth.js v5 (Credentials provider, JWT sessions), `@node-rs/argon2` for passwords, `otplib` + `qrcode` for TOTP
 - zod for validation at every boundary
 - Tailwind CSS v4 + shadcn/ui
@@ -28,7 +30,14 @@ the non-negotiable rules and the domain rules.
 | `pnpm db:migrate` | `prisma migrate deploy` (dev: `pnpm db:migrate:dev`) |
 | `pnpm db:reset` | Drop + re-migrate + seed (development only) |
 | `pnpm db:seed` | Idempotent seed |
+| `pnpm db:seed:demo` | Demo users, employees and runs for review (development only; idempotent) |
 | `pnpm db:studio` | Prisma Studio |
+| `node scripts/smoke.mjs` | Opens every page as demo users against a running app |
+
+Start everything on Windows: double-click `start-payroll.bat` (database + built app on port 3000).
+The machine has little RAM: never run `next dev` and `next build` together, and never build while a
+dev server is running (it corrupts `.next`). Prisma refuses `migrate reset` from AI agents; the
+integration/e2e setup rebuilds only `payroll_test` (drop/create + `migrate deploy`).
 
 One-time setup: run `scripts/mysql-setup.sql` as MySQL `root` (creates `payroll`, `payroll_test`,
 `payroll_shadow`, and the users `payroll_migrator` and `payroll_app`).
@@ -112,8 +121,9 @@ prepared; a Finance Approver never edits employee data or run inputs; the Audito
   "surcharge": { "threshold": 10000000, "rateBp": 1000 } }
 // NSSF
 { "employeeRateBp": 500, "employerRateBp": 1000, "ceiling": null }
-// LST — seeded inactive until bands are confirmed (prisma/data/lst-bands.json)
-{ "bands": [], "instalments": 4, "months": [7, 8, 9, 10], "basis": "MONTHLY_GROSS" }
+// LST — Uganda schedule seeded as an UNAPPROVED draft (prisma/data/lst-bands.json, 11 bands,
+// annual 0–100,000 by monthly gross); the Finance Approver approves it in Settings → Statutory rules
+{ "bands": [ /* see lst-bands.json */ ], "instalments": 4, "months": [7, 8, 9, 10], "basis": "MONTHLY_GROSS" }
 ```
 
 TODO-confirm: verify these against URA / NSSF publications before go-live. `PAYE_NONRES` is not
@@ -177,7 +187,7 @@ module already exists and is kept.)
 
 ## Phase plan
 
-- Phase 1: foundations, schema, auth/RBAC, audit, payroll engine (this repo's first milestone)
-- Phase 2: employees, components, bank accounts, loans, CSV import
-- Phase 3: payroll runs (compute / review / approve), payslips
-- Phase 4: bank exports, reports
+All MVP modules of the Magezi specification are built (foundations, engine, employees, components,
+loans, runs with preparer≠approver, adjustments, payslips with email/SMS links, bank and mobile money
+files, payment results, reports, audit). Spec Phase 2 (leave/attendance, self-service, multi-company,
+accounting exports, mobile money API payouts) is not started.
