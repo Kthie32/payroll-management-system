@@ -163,6 +163,19 @@ function requireEnv(name: string): string {
   return v;
 }
 
+/** JSON with object keys sorted, so values compare equal regardless of key order (MySQL reorders keys). */
+function stableJson(v: unknown): string {
+  return JSON.stringify(v, (_k, val: unknown) =>
+    val && typeof val === 'object' && !Array.isArray(val)
+      ? Object.fromEntries(
+          Object.entries(val as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : 1)),
+        )
+      : val,
+  );
+}
+
+const LST_SOURCE_URL = 'https://www.kcca.go.ug/uDocs/Local_Service_Tax_FAQs.pdf';
+
 function loadLstBands(): unknown[] {
   const file = join(__dirname, 'data', 'lst-bands.json');
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as { bands?: unknown };
@@ -247,10 +260,37 @@ async function seedRule(
   tx: Tx,
   rule: StatutoryRule,
   params: Prisma.InputJsonValue,
-  opts: { active: boolean; approvedById: string | null; sourceUrl?: string },
+  opts: {
+    active: boolean;
+    approvedById: string | null;
+    sourceUrl?: string;
+    /** Update params/source of an existing version while it is still an unapproved draft. */
+    refreshDraft?: boolean;
+  },
 ) {
   const where = { rule_effectiveFrom: { rule, effectiveFrom: RULES_EFFECTIVE_FROM } };
-  if (await tx.statutoryRuleVersion.findUnique({ where })) return;
+  const existing = await tx.statutoryRuleVersion.findUnique({ where });
+  if (existing) {
+    const isDraft = !existing.approvedById && !existing.active;
+    const changed =
+      stableJson(existing.params) !== stableJson(params) ||
+      (opts.sourceUrl ?? null) !== existing.sourceUrl;
+    if (opts.refreshDraft && isDraft && changed) {
+      await tx.statutoryRuleVersion.update({
+        where: { id: existing.id },
+        data: { params, sourceUrl: opts.sourceUrl ?? null },
+      });
+      await withAudit(tx, {
+        actorId: null,
+        action: 'SEED_UPDATE_DRAFT',
+        entity: 'StatutoryRuleVersion',
+        entityId: existing.id,
+        before: { params: existing.params, sourceUrl: existing.sourceUrl },
+        after: { params, sourceUrl: opts.sourceUrl ?? null },
+      });
+    }
+    return;
+  }
   const created = await tx.statutoryRuleVersion.create({
     data: {
       rule,
@@ -362,7 +402,8 @@ async function main() {
           months: [7, 8, 9, 10],
           basis: 'MONTHLY_GROSS',
         } as Prisma.InputJsonValue,
-        { active: false, approvedById: null },
+        // A draft for the Finance Approver to review and approve in Settings → Statutory rules.
+        { active: false, approvedById: null, sourceUrl: LST_SOURCE_URL, refreshDraft: true },
       );
       await seedPayGroups(tx);
       await seedComponents(tx);

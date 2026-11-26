@@ -1,4 +1,61 @@
 {
-  "_todo": "TODO-confirm: enter the Local Service Tax annual bands (UGX, by monthly income) from the Local Governments (Amendment) Act / district schedule, then set the LST rule active and have a FINANCE_APPROVER approve it. Format: { \"from\": 0, \"to\": 100000, \"annual\": 0 } with \"to\": null for the top band.",
-  "bands": []
+  "_source": "Uganda Local Service Tax, employees in gainful employment: annual LST by monthly gross income. Sources: KCCA Local Service Tax FAQs (https://www.kcca.go.ug/uDocs/Local_Service_Tax_FAQs.pdf) and PwC Uganda tax data card 2025/26 (https://www.pwc.com/ug/en/assets/pdf/tax-datacard-2025-2026.pdf). Confirm with the district before approval.",
+  "_convention": "Engine bands are from-inclusive, to-exclusive. Monthly gross up to and including 100,000 pays 0; 100,001 to 200,000 pays 5,000 a year; and so on. Above 1,000,000 pays 100,000 a year.",
+  "bands": [
+    {
+      "from": 0,
+      "to": 100001,
+      "annual": 0
+    },
+    {
+      "from": 100001,
+      "to": 200001,
+      "annual": 5000
+    },
+    {
+      "from": 200001,
+      "to": 300001,
+      "annual": 10000
+    },
+    {
+      "from": 300001,
+      "to": 400001,
+      "annual": 20000
+    },
+    {
+      "from": 400001,
+      "to": 500001,
+      "annual": 30000
+    },
+    {
+      "from": 500001,
+      "to": 600001,
+      "annual": 40000
+    },
+    {
+      "from": 600001,
+      "to": 700001,
+      "annual": 60000
+    },
+    {
+      "from": 700001,
+      "to": 800001,
+      "annual": 70000
+    },
+    {
+      "from": 800001,
+      "to": 900001,
+      "annual": 80000
+    },
+    {
+      "from": 900001,
+      "to": 1000001,
+      "annual": 90000
+    },
+    {
+      "from": 1000001,
+      "to": null,
+      "annual": 100000
+    }
+  ]
 }
